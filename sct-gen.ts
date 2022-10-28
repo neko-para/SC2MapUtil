@@ -1,16 +1,36 @@
 import fs from "fs/promises"
-import { AstNodeActionDefine, AstNodeFunctionDefine, AstNodeParamDefine, CreateParser } from "./sct-parse.js"
 import type {
+  AstNodeActionDefine,
+  AstNodeFunctionDefine,
+  AstNodeParamDefine,
   AstNodeSection,
   AstNodeTriggerDefine,
   AstNodeVariableDefine,
   AstNodeValue,
+  AstNodeActionCall,
 } from "./sct-parse.js"
+import { CreateParser } from "./sct-parse.js"
 import { saveXml, XmlNode } from "./xml.js"
 
-let ID = 0x10000000
-function genId() {
-  return (++ID).toString(16).toUpperCase().padStart(8)
+const TypeName = {
+  文本: "text",
+  字符串: "string",
+  整数: "int",
+  布尔: "bool",
+}
+
+interface ParamInfo {
+  id: string
+  lib?: string
+  name: string
+  type: string
+}
+
+interface FunctionInfo {
+  id: string
+  lib?: string
+  ret?: string
+  param: ParamInfo[]
 }
 
 class Context {
@@ -23,392 +43,646 @@ class Context {
   }
 }
 
-const TypeName = {
-  文本: "text",
-  字符串: "string",
-  整数: "int",
-  布尔: "bool",
-}
-
-const GameStrings: string[] = []
-const TriggerStrings: string[] = []
-
-const TriggerData: XmlNode = {
-  tag: "TriggerData",
-  attr: {},
-  child: [],
-}
-
-interface FuncParamInfo {
-  id: string
-  lib?: string
-  name: string
-  type: string
-}
-
-interface FunctionInfo {
-  lib?: string
-  id: string
-  ret?: string
-  param: {
-    name: string
-    type: string
-    id: string
-  }[]
-}
-
-interface ActionInfo {
-  lib?: string
-  id: string
-  param: {
-    name: string
-    type: string
-    id: string
-  }[]
-}
-
-const ExternalPresets: {
-  [key: string]: {
-    lib: string
-    value: Record<string, string>
-  }
-} = {}
-const ExternalEvents: {
-  [key: string]: {
-    lib: string
-    id: string
-  }
-} = {}
-const ExternalFunctions: Record<string, FunctionInfo> = {}
-const ExternalActions: Record<string, ActionInfo> = {}
-
-const Triggers: {
-  [name: string]: {
-    id: string
-    desc: string
-    event: string
-    node: AstNodeTriggerDefine
-  }
-} = {}
-const Functions: {
-  [name: string]: {
-    fi: FunctionInfo
-    id: string
-    desc: string
-    node: AstNodeFunctionDefine
-  }
-} = {}
-const Actions: {
-  [name: string]: {
-    fi: FunctionInfo
-    id: string
-    desc: string
-    node: AstNodeActionDefine
-  }
-} = {}
-
-function ExternalEvent(e: string) {
-  const id = genId()
-  const { lib, id: fid } = ExternalEvents[e]
-  return {
-    id,
-    els: [
-      {
-        tag: "Element",
-        attr: {
-          Type: "FunctionCall",
-          Id: id,
-        },
-        child: [
-          {
-            tag: "FunctionDef",
-            attr: {
-              Type: "FunctionDef",
-              Library: lib,
-              Id: fid,
-            },
-            child: [],
-          },
-        ],
-      },
-    ],
-  }
-}
-
-function DirectValue(s: string, type: string) {
-  return [
-    {
-      tag: "Value",
-      attr: {},
-      child: [
-        {
-          tag: "#text",
-          attr: {
-            text: s,
-          },
-          child: [],
-        },
-      ],
-    },
-    {
-      tag: "ValueType",
-      attr: {
-        Type: type,
-      },
-      child: [],
-    },
-  ]
-}
-
-function DirectString(s: string) {
-  return DirectValue(s, 'string')
-}
-
-function DirectInt(i: number) {
-  return DirectValue(i.toString(), 'int')
-}
-
-function DirectBoolean(b: boolean) {
-  return DirectValue(b.toString(), 'bool')
-}
-
-function DirectText(id: string, s: string) {
-  GameStrings.push(`Param/Value/${id}=${s}`) // TODO: escape
-  return {
-    tag: "ValueType",
-    attr: {
-      Type: "text",
-    },
-    child: [],
-  }
-}
-
-function VariableRefer(id: string) {
+function VariableRefer(id: string, lib: string) {
   return {
     tag: "Variable",
     attr: {
       Type: "Variable",
+      Library: lib,
       Id: id,
     },
     child: [],
   }
 }
 
-function ParamRefer(id: string) {
-  // if in library, need Lib key
+function ParamRefer(id: string, lib: string) {
   return {
     tag: "Parameter",
     attr: {
       Type: "ParamDef",
+      Library: lib,
       Id: id,
     },
     child: [],
   }
 }
 
-function QueryFunction(func: string) {
-  if (func in ExternalFunctions) {
-    return ExternalFunctions[func]
-  } else if (func in ExternalActions) {
-    return ExternalActions[func]
-  } else if (func in Functions) {
-    return Functions[func].fi
-  } else if (func in Actions) {
-    return Actions[func].fi
-  } else {
-    throw "unknown function " + func
-  }
-}
+class Library {
+  __ID: number
+  prog: Program
+  libid: string | undefined
+  Root: XmlNode
+  Elements: XmlNode[]
 
-function FunctionCall(
-  ctx: Context,
-  params: AstNodeValue[],
-  func: string
-): [XmlNode, XmlNode[]] {
-  const id = genId()
-  const fi = QueryFunction(func)
-  const el: XmlNode = {
-    tag: "Element",
-    attr: {
-      Type: "FunctionCall",
-      Id: id,
-    },
-    child: [
+  Triggers: Record<string, AstNodeTriggerDefine & { id: string }>
+  Functions: Record<string, AstNodeFunctionDefine & { id: string }>
+  Actions: Record<string, AstNodeActionDefine & { id: string }>
+
+  constructor(p: Program, lid?: string) {
+    this.__ID = 0x10000000
+    this.prog = p
+    this.libid = lid
+    this.Root = {
+      tag: "Root",
+      attr: {},
+      child: [],
+    }
+    this.Elements = []
+    this.Triggers = {}
+    this.Functions = {}
+    this.Actions = {}
+  }
+
+  genId() {
+    return (++this.__ID).toString(16).toUpperCase().padStart(8)
+  }
+
+  DirectValue(s: string, type: string) {
+    return [
       {
-        tag: "FunctionDef",
+        tag: "Value",
+        attr: {},
+        child: [
+          {
+            tag: "#text",
+            attr: {
+              text: s,
+            },
+            child: [],
+          },
+        ],
+      },
+      {
+        tag: "ValueType",
         attr: {
-          Type: "FunctionDef",
-          Library: fi.lib,
-          Id: fi.id,
+          Type: type,
         },
         child: [],
       },
-    ],
+    ]
   }
-  const appending = [el]
-  params.forEach((p, i) => {
-    const { id: pid, els } = CreateParam(p, ctx, {
-      ...fi.param[i],
-      lib: fi.lib,
-    })
-    el.child.push({
-      tag: "Parameter",
+
+  DirectString(s: string) {
+    return this.DirectValue(s, "string")
+  }
+
+  DirectInt(i: number) {
+    return this.DirectValue(i.toString(), "int")
+  }
+
+  DirectBoolean(b: boolean) {
+    return this.DirectValue(b.toString(), "bool")
+  }
+
+  DirectText(id: string, s: string) {
+    this.prog.GameStrings.push(`Param/Value/${id}=${s}`) // TODO: escape
+    return {
+      tag: "ValueType",
       attr: {
-        Type: "Param",
-        Id: pid,
+        Type: "text",
       },
       child: [],
-    })
-    appending.push(...els)
-  })
-  return [
-    {
-      tag: "FunctionCall",
+    }
+  }
+
+  FunctionCall(ctx: Context, func: string, params: AstNodeValue[]) {
+    const id = this.genId()
+    const fi = this.prog.QueryFunction(func)
+    const el: XmlNode = {
+      tag: "Element",
       attr: {
         Type: "FunctionCall",
         Id: id,
       },
-      child: [],
-    },
-    appending,
-  ]
-}
-
-function CreateParam(ast: AstNodeValue, ctx: Context, fpi?: FuncParamInfo) {
-  const id = genId()
-  const el = {
-    tag: "Element",
-    attr: {
-      Type: "Param",
-      Id: id,
-    },
-    child: [],
-  }
-  const appending: XmlNode[] = [el]
-  if (fpi) {
-    el.child.push({
-      tag: "ParameterDef",
-      attr: {
-        Type: "ParamDef",
-        Library: fpi.lib,
-        Id: fpi.id,
-      },
-      child: [],
-    })
-  }
-  switch (ast.astType) {
-    case "text-value":
-      el.child.push(DirectText(id, ast.text))
-      break
-    case "str-value":
-      el.child.push(...DirectString(ast.str))
-      break
-    case 'int-value':
-      el.child.push(...DirectInt(ast.int))
-      break
-    case 'bool-value':
-      el.child.push(...DirectBoolean(ast.bool))
-      break
-    case "var-ref": {
-      if (ast.variable in ctx.variable) {
-        el.child.push(VariableRefer(ctx.variable[ast.variable]))
-      } else if (ast.variable in ctx.param) {
-        el.child.push(ParamRefer(ctx.param[ast.variable]))
-      } else {
-        throw "unknown variable or param " + ast.variable
-      }
-      break
+      child: [
+        {
+          tag: "FunctionDef",
+          attr: {
+            Type: "FunctionDef",
+            Library: fi.lib,
+            Id: fi.id,
+          },
+          child: [],
+        },
+      ],
     }
-    case "func-call": {
-      const [e, els] = FunctionCall(ctx, ast.params, ast.func)
-      el.child.push(e)
-      appending.push(...els)
-      break
-    }
-    case "preset-value": {
-      const pi = ExternalPresets[ast.preset]
+    const app = [el]
+    params.forEach((p, i) => {
+      const { id: pid, els } = this.CreateParam(p, ctx, fi.param[i])
       el.child.push({
-        tag: "Preset",
+        tag: "Parameter",
         attr: {
-          Type: "PresetValue",
-          Library: pi.lib,
-          Id: pi.value[ast.child],
+          Type: "Param",
+          Library: this.libid,
+          Id: pid,
         },
         child: [],
       })
-      break
+      app.push(...els)
+    })
+    return {
+      id,
+      els: app,
     }
   }
-  return {
-    id,
-    els: appending,
+
+  CreateParam(ast: AstNodeValue, ctx: Context, pi?: ParamInfo) {
+    const id = this.genId()
+    const el = {
+      tag: "Element",
+      attr: {
+        Type: "Param",
+        Id: id,
+      },
+      child: [],
+    }
+    const app: XmlNode[] = [el]
+    if (pi) {
+      el.child.push({
+        tag: "ParameterDef",
+        attr: {
+          Type: "ParamDef",
+          Library: pi.lib,
+          Id: pi.id,
+        },
+        child: [],
+      })
+    }
+    switch (ast.astType) {
+      case "text-value":
+        el.child.push(this.DirectText(id, ast.text))
+        break
+      case "str-value":
+        el.child.push(...this.DirectString(ast.str))
+        break
+      case "int-value":
+        el.child.push(...this.DirectInt(ast.int))
+        break
+      case "bool-value":
+        el.child.push(...this.DirectBoolean(ast.bool))
+        break
+      case "var-ref": {
+        if (ast.variable in ctx.variable) {
+          el.child.push(VariableRefer(ctx.variable[ast.variable], this.libid))
+        } else if (ast.variable in ctx.param) {
+          el.child.push(ParamRefer(ctx.param[ast.variable], this.libid))
+        } else {
+          throw "unknown variable or param " + ast.variable
+        }
+        break
+      }
+      case "func-call": {
+        const { id: eid, els } = this.FunctionCall(ctx, ast.func, ast.params)
+        el.child.push({
+          tag: "FunctionCall",
+          attr: {
+            Type: "FunctionCall",
+            Library: this.libid,
+            Id: eid,
+          },
+          child: [],
+        })
+        app.push(...els)
+        break
+      }
+      case "preset-value": {
+        const pi = this.prog.Declare.Presets[ast.preset]
+        el.child.push({
+          tag: "Preset",
+          attr: {
+            Type: "PresetValue",
+            Library: pi.lib,
+            Id: pi.value[ast.child],
+          },
+          child: [],
+        })
+        break
+      }
+    }
+    return {
+      id,
+      els: app,
+    }
+  }
+
+  LibStringKey () {
+    return this.libid ? `lib_${this.libid}_` : ''
+  }
+
+  VariableDefine(v: AstNodeVariableDefine, ctx: Context) {
+    const id = this.genId()
+    const el = {
+      tag: "Element",
+      attr: {
+        Type: "Variable",
+        Id: id,
+      },
+      child: [
+        {
+          tag: "VariableType",
+          attr: {},
+          child: [
+            {
+              tag: "Type",
+              attr: {
+                Value: TypeName[v.type],
+              },
+              child: [],
+            },
+          ],
+        },
+      ],
+    }
+    const app: XmlNode[] = [el]
+    const { id: pid, els } = this.CreateParam(v.value, ctx)
+    app.push(...els)
+    el.child.push({
+      tag: "Value",
+      attr: {
+        Type: "Param",
+        Library: this.libid,
+        Id: pid,
+      },
+      child: [],
+    })
+    this.prog.TriggerStrings.push(`Variable/Name/${this.LibStringKey()}${id}=${v.variable}`)
+    return { id, els: app }
+  }
+
+  ParamDefine(id: string, v: AstNodeParamDefine, ctx: Context) {
+    const el = {
+      tag: "Element",
+      attr: {
+        Type: "ParamDef",
+        Id: id,
+      },
+      child: [
+        {
+          tag: "ParameterType",
+          attr: {},
+          child: [
+            {
+              tag: "Type",
+              attr: {
+                Value: TypeName[v.type],
+              },
+              child: [],
+            },
+          ],
+        },
+      ],
+    }
+    this.prog.TriggerStrings.push(`ParamDef/Name/${this.LibStringKey()}${id}=${v.name}`)
+    return { id, els: [el] }
+  }
+
+  Load(aa: AstNodeSection) {
+    const a = {
+      id: this.genId(),
+      ...aa,
+    }
+    switch (a.astType) {
+      case "trigger-def":
+        this.Root.child.push({
+          tag: "Item",
+          attr: {
+            Type: "Trigger",
+            Library: this.libid,
+            Id: a.id,
+          },
+          child: [],
+        })
+        this.prog.TriggerStrings.push(`Trigger/Name/${this.LibStringKey()}${a.id}=${a.desc}`)
+        this.Triggers[a.name] = a
+        break
+      case "func-def":
+        this.Root.child.push({
+          tag: "Item",
+          attr: {
+            Type: "FunctionDef",
+            Library: this.libid,
+            Id: a.id,
+          },
+          child: [],
+        })
+        this.prog.TriggerStrings.push(`FunctionDef/Name/${this.LibStringKey()}${a.id}=${a.desc}`)
+        this.Functions[a.name] = a
+        this.prog.Declare.Functions[a.name] = {
+          id: a.id,
+          lib: this.libid,
+          param: a.params.map(p => ({
+            ...p,
+            id: this.genId(),
+            lib: this.libid,
+          })),
+          ret: a.ret,
+        }
+        break
+      case "act-def":
+        this.Root.child.push({
+          tag: "Item",
+          attr: {
+            Type: "FunctionDef",
+            Library: this.libid,
+            Id: a.id,
+          },
+          child: [],
+        })
+        this.prog.TriggerStrings.push(`FunctionDef/Name/${this.LibStringKey()}${a.id}=${a.desc}`)
+        this.Actions[a.name] = a
+        this.prog.Declare.Actions[a.name] = {
+          id: a.id,
+          lib: this.libid,
+          param: a.params.map(p => ({
+            ...p,
+            id: this.genId(),
+            lib: this.libid,
+          })),
+        }
+        break
+    }
+  }
+
+  BuildParam(ctx: Context, p: AstNodeParamDefine, id: string) {
+    const { id: _, els } = this.ParamDefine(id, p, ctx)
+    ctx.param[p.name] = id
+    this.Elements.push(...els)
+    return {
+      tag: "Parameter",
+      attr: {
+        Type: "ParamDef",
+        Library: this.libid,
+        Id: id,
+      },
+      child: [],
+    }
+  }
+
+  BuildVariable(ctx: Context, v: AstNodeVariableDefine) {
+    const { id, els } = this.VariableDefine(v, ctx)
+    ctx.variable[v.variable] = id
+    this.Elements.push(...els)
+    return {
+      tag: "Variable",
+      attr: {
+        Type: "Variable",
+        Library: this.libid,
+        Id: id,
+      },
+      child: [],
+    }
+  }
+
+  BuildStatementAct(ctx: Context, s: AstNodeActionCall) {
+    const { id, els } = this.FunctionCall(ctx, s.func, s.params)
+    this.Elements.push(...els)
+    return {
+      tag: "Action",
+      attr: {
+        Type: "FunctionCall",
+        Library: this.libid,
+        Id: id,
+      },
+      child: [],
+    }
+  }
+
+  BuildStatement(ctx: Context, s: AstNodeActionCall) {
+    const { id, els } = this.FunctionCall(ctx, s.func, s.params)
+    this.Elements.push(...els)
+    return {
+      tag: "FunctionCall",
+      attr: {
+        Type: "FunctionCall",
+        Library: this.libid,
+        Id: id,
+      },
+      child: [],
+    }
+  }
+
+  Build() {
+    for (const k in this.Triggers) {
+      const t = this.Triggers[k]
+      const ctx = new Context()
+
+      const el = {
+        tag: "Element",
+        attr: {
+          Type: "Trigger",
+          Id: t.id,
+        },
+        child: [],
+      }
+      this.Elements.push(el)
+
+      el.child.push(...t.vars.map(v => this.BuildVariable(ctx, v)))
+
+      {
+        const { id, els } = this.FunctionCall(ctx, t.event.func, t.event.params)
+        this.Elements.push(...els)
+        el.child.push({
+          tag: "Event",
+          attr: {
+            Type: "FunctionCall",
+            Library: this.libid,
+            Id: id,
+          },
+          child: [],
+        })
+      }
+
+      el.child.push(...t.statements.map(s => this.BuildStatementAct(ctx, s)))
+    }
+
+    for (const k in this.Functions) {
+      const t = this.Functions[k]
+      const ctx = new Context()
+      const pis = this.prog.QueryFunction(k).param
+
+      const el = {
+        tag: "Element",
+        attr: {
+          Type: "FunctionDef",
+          Id: t.id,
+        },
+        child: [
+          {
+            tag: "FlagCall",
+            attr: {},
+            child: [],
+          },
+          {
+            tag: "ReturnType",
+            attr: {},
+            child: [
+              {
+                tag: "Type",
+                attr: {
+                  Value: TypeName[t.ret],
+                },
+                child: [],
+              },
+            ],
+          },
+        ],
+      }
+      this.Elements.push(el)
+
+      el.child.push(...t.params.map((p, i) => this.BuildParam(ctx, p, pis[i].id)))
+
+      el.child.push(...t.vars.map(v => this.BuildVariable(ctx, v)))
+
+      el.child.push(...t.statements.map(s => this.BuildStatement(ctx, s)))
+    }
+
+    for (const k in this.Actions) {
+      const t = this.Actions[k]
+      const ctx = new Context()
+      const pis = this.prog.QueryFunction(k).param
+
+      const el = {
+        tag: "Element",
+        attr: {
+          Type: "FunctionDef",
+          Id: t.id,
+        },
+        child: [
+          {
+            tag: "FlagAction",
+            attr: {},
+            child: [],
+          }
+        ],
+      }
+      this.Elements.push(el)
+
+      el.child.push(...t.params.map((p, i) => this.BuildParam(ctx, p, pis[i].id)))
+
+      el.child.push(...t.vars.map(v => this.BuildVariable(ctx, v)))
+
+      el.child.push(...t.statements.map(s => this.BuildStatement(ctx, s)))
+    }
+
+    return [this.Root, ...this.Elements]
   }
 }
 
-function VariableDefine(v: AstNodeVariableDefine, ctx: Context) {
-  const id = genId()
-  const el = {
-    tag: "Element",
-    attr: {
-      Type: "Variable",
-      Id: id,
-    },
-    child: [
-      {
-        tag: "VariableType",
-        attr: {},
-        child: [
-          {
-            tag: "Type",
-            attr: {
-              Value: TypeName[v.type],
-            },
-            child: [],
-          },
-        ],
-      },
-    ],
-  }
-  const appending: XmlNode[] = [el]
-  const { id: pid, els } = CreateParam(v.value, ctx)
-  appending.push(...els)
-  el.child.push({
-    tag: "Value",
-    attr: {
-      Type: "Param",
-      Id: pid,
-    },
-    child: [],
-  })
-  TriggerStrings.push(`Variable/Name/${id}=${v.variable}`)
-  return { id, els: appending }
-}
+class Program {
+  GameStrings: string[]
+  TriggerStrings: string[]
 
-function ParamDefine(id: string, v: AstNodeParamDefine, ctx: Context) {
-  const el = {
-    tag: "Element",
-    attr: {
-      Type: "ParamDef",
-      Id: id,
-    },
-    child: [
-      {
-        tag: "ParameterType",
-        attr: {},
-        child: [
-          {
-            tag: "Type",
-            attr: {
-              Value: TypeName[v.type],
-            },
-            child: [],
-          },
-        ],
-      },
-    ],
+  Declare: {
+    Presets: Record<string, { lib: string; value: Record<string, string> }>
+    Functions: Record<string, FunctionInfo>
+    Actions: Record<string, FunctionInfo>
+    Events: Record<string, FunctionInfo>
   }
-  TriggerStrings.push(`ParamDef/Name/${id}=${v.name}`)
-  return { id, els: [ el ] }
+
+  Lib: Record<string, Library>
+
+  constructor() {
+    this.GameStrings = []
+    this.TriggerStrings = []
+    this.Declare = { Presets: {}, Functions: {}, Actions: {}, Events: {} }
+    this.Lib = {}
+    this.Lib["0"] = new Library(this, undefined)
+  }
+
+  QueryFunction(func: string) {
+    const fi =
+      this.Declare.Functions[func] ||
+      this.Declare.Actions[func] ||
+      this.Declare.Events[func]
+    if (!fi) {
+      throw `unknown function ${func}`
+    }
+    return fi
+  }
+
+  Load(asts: AstNodeSection[]) {
+    let libid: string = "0"
+    asts.forEach(a => {
+      switch (a.astType) {
+        case "external-preset-def":
+          this.Declare.Presets[a.name] = {
+            lib: a.lib,
+            value: {},
+          }
+          a.value.forEach(
+            v => (this.Declare.Presets[a.name].value[v.name] = v.id)
+          )
+          break
+        case "external-event-def":
+          this.Declare.Events[a.func] = {
+            id: a.ref.id,
+            lib: a.ref.lib,
+            param: a.params.map(p => ({
+              ...p,
+              lib: a.ref.lib
+            })),
+          }
+          break
+        case "external-func-def":
+          this.Declare.Functions[a.func] = {
+            id: a.ref.id,
+            lib: a.ref.lib,
+            ret: a.ret,
+            param: a.params.map(p => ({
+              ...p,
+              lib: a.ref.lib
+            })),
+          }
+          break
+        case "external-act-def":
+          this.Declare.Actions[a.func] = {
+            id: a.ref.id,
+            lib: a.ref.lib,
+            param: a.params.map(p => ({
+              ...p,
+              lib: a.ref.lib
+            })),
+          }
+          break
+        case "declare-library":
+          libid = a.library
+          if (!(libid in this.Lib)) {
+            this.Lib[libid] = new Library(this, libid)
+            this.TriggerStrings.push(`Library/Name/${libid}=${a.name}`)
+          }
+          break
+        case "trigger-def":
+        case "func-def":
+        case "act-def":
+          this.Lib[libid].Load(a)
+          break
+      }
+    })
+  }
+
+  Build() {
+    const td = {
+      tag: "TriggerData",
+      attr: {},
+      child: [],
+    }
+    for (const k in this.Lib) {
+      if (k === "0") {
+        continue
+      }
+      td.child.push({
+        tag: "Library",
+        attr: {
+          Id: k,
+        },
+        child: [...this.Lib[k].Build()],
+      })
+    }
+    if (this.Lib["0"]) {
+      td.child.push(...this.Lib["0"].Build())
+    }
+    return td
+  }
 }
 
 async function main() {
@@ -424,324 +698,15 @@ async function main() {
     return
   }
 
-  res.forEach(r => {
-    switch (r.astType) {
-      case "external-preset-def":
-        ExternalPresets[r.name] = {
-          lib: r.lib,
-          value: {},
-        }
-        r.value.forEach(v => (ExternalPresets[r.name].value[v.name] = v.id))
-        break
-      case "external-event-def":
-        ExternalEvents[r.name] = r.ref
-        break
-      case "external-func-def":
-        ExternalFunctions[r.func] = {
-          lib: r.ref.lib,
-          id: r.ref.id,
-          ret: r.ret,
-          param: r.params,
-        }
-        break
-      case "external-act-def":
-        ExternalActions[r.func] = {
-          lib: r.ref.lib,
-          id: r.ref.id,
-          param: r.params,
-        }
-        break
-      case "trigger-def":
-        Triggers[r.name] = {
-          id: genId(),
-          desc: r.desc,
-          event: r.event,
-          node: r,
-        }
-        break
-      case "func-def": {
-        const id = genId()
-        Functions[r.name] = {
-          fi: {
-            id: id,
-            ret: r.ret,
-            param: r.params.map(p => ({
-              id: genId(),
-              name: p.name,
-              type: p.type
-            }))
-          },
-          id,
-          desc: r.desc,
-          node: r
-        }
-        break
-      }
-      case "act-def": {
-        const id = genId()
-        Actions[r.name] = {
-          fi: {
-            id: id,
-            param: r.params.map(p => ({
-              id: genId(),
-              name: p.name,
-              type: p.type
-            }))
-          },
-          id,
-          desc: r.desc,
-          node: r
-        }
-        break
-      }
-    }
-  })
+  const prog = new Program()
 
-  const root: XmlNode = {
-    tag: "Root",
-    attr: {},
-    child: [],
-  }
+  prog.Load(res)
 
-  TriggerData.child.push(root)
-
-  for (const k in Triggers) {
-    const t = Triggers[k]
-
-    root.child.push({
-      tag: "Item",
-      attr: {
-        Type: "Trigger",
-        Id: t.id,
-      },
-      child: [],
-    })
-    TriggerStrings.push(`Trigger/Name/${t.id}=${t.desc}`)
-
-    const context = new Context()
-
-    const el = {
-      tag: "Element",
-      attr: {
-        Type: "Trigger",
-        Id: t.id,
-      },
-      child: [],
-    }
-    TriggerData.child.push(el)
-    el.child.push(
-      ...t.node.vars.map(v => {
-        const { id, els } = VariableDefine(v, context)
-        TriggerData.child.push(...els)
-        context.variable[v.variable] = id
-        return {
-          tag: "Variable",
-          attr: {
-            Type: "Variable",
-            Id: id,
-          },
-          child: [],
-        }
-      })
-    )
-
-    {
-      const { id, els } = ExternalEvent(t.event)
-      el.child.push({
-        tag: "Event",
-        attr: {
-          Type: "FunctionCall",
-          Id: id,
-        },
-        child: [],
-      })
-      TriggerData.child.push(...els)
-    }
-
-    t.node.statements.forEach(f => {
-      const [e, els] = FunctionCall(context, f.params, f.func)
-      el.child.push({
-        tag: "Action",
-        attr: {
-          Type: "FunctionCall",
-          Id: e.attr.Id,
-        },
-        child: [],
-      })
-      TriggerData.child.push(...els)
-    })
-  }
-
-  for (const k in Functions) {
-    const t = Functions[k]
-
-    root.child.push({
-      tag: "Item",
-      attr: {
-        Type: "FunctionDef",
-        Id: t.id,
-      },
-      child: [],
-    })
-    TriggerStrings.push(`FunctionDef/Name/${t.id}=${t.desc}`)
-
-    const context = new Context()
-
-    const el = {
-      tag: "Element",
-      attr: {
-        Type: "FunctionDef",
-        Id: t.id,
-      },
-      child: [
-        {
-          tag: 'FlagCall',
-          attr: {},
-          child: []
-        },
-        {
-          tag: 'ReturnType',
-          attr: {},
-          child: [
-            {
-              tag: 'Type',
-              attr: {
-                Value: TypeName[t.fi.ret]
-              },
-              child: []
-            }
-          ]
-        }
-      ],
-    }
-    TriggerData.child.push(el)
-    el.child.push(
-      ...t.node.params.map((v, i) => {
-        const id = t.fi.param[i].id
-        const { els } = ParamDefine(id, v, context)
-        TriggerData.child.push(...els)
-        context.param[v.name] = id
-        return {
-          tag: "Parameter",
-          attr: {
-            Type: "ParamDef",
-            Id: id,
-          },
-          child: [],
-        }
-      })
-    )
-
-    el.child.push(
-      ...t.node.vars.map(v => {
-        const { id, els } = VariableDefine(v, context)
-        TriggerData.child.push(...els)
-        context.variable[v.variable] = id
-        return {
-          tag: "Variable",
-          attr: {
-            Type: "Variable",
-            Id: id,
-          },
-          child: [],
-        }
-      })
-    )
-
-    t.node.statements.forEach(f => {
-      const [e, els] = FunctionCall(context, f.params, f.func)
-      el.child.push({
-        tag: "FunctionCall",
-        attr: {
-          Type: "FunctionCall",
-          Id: e.attr.Id,
-        },
-        child: [],
-      })
-      TriggerData.child.push(...els)
-    })
-  }
-
-  for (const k in Actions) {
-    const t = Actions[k]
-
-    root.child.push({
-      tag: "Item",
-      attr: {
-        Type: "FunctionDef",
-        Id: t.id,
-      },
-      child: [],
-    })
-    TriggerStrings.push(`FunctionDef/Name/${t.id}=${t.desc}`)
-
-    const context = new Context()
-
-    const el = {
-      tag: "Element",
-      attr: {
-        Type: "FunctionDef",
-        Id: t.id,
-      },
-      child: [
-        {
-          tag: 'FlagAction',
-          attr: {},
-          child: []
-        }
-      ],
-    }
-    TriggerData.child.push(el)
-    el.child.push(
-      ...t.node.params.map((v, i) => {
-        const id = t.fi.param[i].id
-        const { els } = ParamDefine(id, v, context)
-        TriggerData.child.push(...els)
-        context.param[v.name] = id
-        return {
-          tag: "Parameter",
-          attr: {
-            Type: "ParamDef",
-            Id: id,
-          },
-          child: [],
-        }
-      })
-    )
-
-    el.child.push(
-      ...t.node.vars.map(v => {
-        const { id, els } = VariableDefine(v, context)
-        TriggerData.child.push(...els)
-        context.variable[v.variable] = id
-        return {
-          tag: "Variable",
-          attr: {
-            Type: "Variable",
-            Id: id,
-          },
-          child: [],
-        }
-      })
-    )
-
-    t.node.statements.forEach(f => {
-      const [e, els] = FunctionCall(context, f.params, f.func)
-      el.child.push({
-        tag: "FunctionCall",
-        attr: {
-          Type: "FunctionCall",
-          Id: e.attr.Id,
-        },
-        child: [],
-      })
-      TriggerData.child.push(...els)
-    })
-  }
+  const td = prog.Build()
 
   await fs.writeFile(
     "C:/Users/nekosu/Desktop/1.SC2Map/Triggers",
-    '<?xml version="1.0" encoding="utf-8"?>' + saveXml(TriggerData)
+    '<?xml version="1.0" encoding="utf-8"?>' + saveXml(td)
   )
   await fs.writeFile(
     "C:/Users/nekosu/Desktop/1.SC2Map/zhCN.SC2Data/LocalizedData/GameStrings.txt",
@@ -751,11 +716,11 @@ DocInfo/Name=这只是另一张《星际争霸II》地图
 MapInfo/Player00/Name=中立
 MapInfo/Player01/Name=玩家1
 MapInfo/Player02/Name=敌对
-` + GameStrings.join("\n")
+` + prog.GameStrings.join("\n")
   )
   await fs.writeFile(
     "C:/Users/nekosu/Desktop/1.SC2Map/zhCN.SC2Data/LocalizedData/TriggerStrings.txt",
-    TriggerStrings.join("\n")
+    prog.TriggerStrings.join("\n")
   )
 }
 

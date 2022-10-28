@@ -61,6 +61,12 @@ export interface AstNodeActionCall extends AstNode {
   params: AstNodeValue[]
 }
 
+export interface AstNodeEventCall extends AstNode {
+  astType: "event-call"
+  func: string
+  params: AstNodeValue[]
+}
+
 export interface AstNodeVariableDefine {
   type: string
   variable: string
@@ -77,7 +83,7 @@ export interface AstNodeTriggerDefine extends AstNode {
   astType: "trigger-def"
   name: string
   desc: string
-  event: string
+  event: AstNodeEventCall
   vars: AstNodeVariableDefine[]
   statements: AstNodeActionCall[]
 }
@@ -109,8 +115,9 @@ export interface AstNodeExternalParamDefine {
 
 export interface AstNodeExternalEventDefine extends AstNode {
   astType: "external-event-def"
-  name: string
+  func: string
   ref: ExternalRefer
+  params: AstNodeExternalParamDefine[]
 }
 
 export interface AstNodeExternalFunctionDefine extends AstNode {
@@ -140,7 +147,14 @@ export interface AstNodeExternalPresetDefine extends AstNode {
   value: AstNodeExternalPresetValueDefine[]
 }
 
+export interface AstNodeDeclareLibrary extends AstNode {
+  astType: "declare-library"
+  library: string
+  name: string
+}
+
 export type AstNodeSection =
+  | AstNodeDeclareLibrary
   | AstNodeTriggerDefine
   | AstNodeFunctionDefine
   | AstNodeActionDefine
@@ -155,6 +169,7 @@ export interface NodeTypes {
   $函数: null
   $动作: null
   $触发器: null
+  $库: null
   "$->": null
   "$;": null
   "$.": null
@@ -185,6 +200,7 @@ export interface NodeTypes {
   statement: AstNodeActionCall
   statements: AstNodeActionCall[]
 
+  DeclareLibrary: AstNodeDeclareLibrary
   TriggerDef: AstNodeTriggerDefine
   FunctionDef: AstNodeFunctionDefine
   ActionDef: AstNodeActionDefine
@@ -229,6 +245,7 @@ export function CreateParser() {
       "$函数",
       "$动作",
       "$触发器",
+      "$库",
       "$->",
       "$;",
       "$.",
@@ -251,6 +268,7 @@ export function CreateParser() {
     .with(r => r._some("program", "section"))
     .for("section")
     .sameas(
+      "DeclareLibrary",
       "TriggerDef",
       "FunctionDef",
       "ActionDef",
@@ -260,22 +278,37 @@ export function CreateParser() {
       "ExternalPresetDef"
     )
 
+    .for("DeclareLibrary")
+    .when("$库", "$str", "$str")
+    .do((_, library, name) => ({
+      astType: "declare-library",
+      library,
+      name,
+    }))
+
     .for("TriggerDef")
     .when(
       "$触发器",
       "$label",
       "$str",
       "$label",
+      "$(",
+      "values",
+      "$)",
       "VariableDefs",
       "${",
       "statements",
       "$}"
     )
-    .do((_, name, desc, event, vars, _2, statements) => ({
+    .do((_, name, desc, event, _2, eventParam, _3, vars, _4, statements) => ({
       astType: "trigger-def",
       name,
       desc,
-      event,
+      event: {
+        astType: "event-call",
+        func: event,
+        params: eventParam,
+      },
       vars,
       statements,
     }))
@@ -354,14 +387,27 @@ export function CreateParser() {
     }))
 
     .for("ExternalEventDef")
-    .when("$事件", "$<", "$label", "$>", "$label", "$=", "$id", "$;")
-    .do((_, _2, lib, _3, name, _4, id) => ({
+    .when(
+      "$事件",
+      "$<",
+      "$label",
+      "$>",
+      "$label",
+      "$=",
+      "$id",
+      "$(",
+      "ExternalParamDefs",
+      "$)",
+      "$;"
+    )
+    .do((_, _2, lib, _3, func, _4, id, _5, params) => ({
       astType: "external-event-def",
-      name,
+      func,
       ref: {
         lib,
         id,
       },
+      params,
     }))
 
     .for("ExternalFunctionDef")
