@@ -5,7 +5,8 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "run": "node --loader ts-node/esm ./sct-gen.ts"
+    "run-back": "node --loader ts-node/esm ./sct-gen.ts",
+    "run": "node --loader ts-node/esm src/test.ts"
   },
   "keywords": [
     "sc2"

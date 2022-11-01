@@ -2,3 +2,4 @@ SCPub
 node_modules
 .vscode
 Triggers.xml
+src/**/*.js

@@ -1,4 +1,3 @@
-import fs from 'fs/promises'
 import { XMLParser, XMLBuilder } from 'fast-xml-parser'
 
 export interface XmlAttrs {
@@ -17,18 +16,6 @@ export interface XmlTextNode extends XmlNode {
     text: string
   }
   child: never[]
-}
-
-async function readXml (path: string) {
-  const buf = await fs.readFile(path)
-  const parser = new XMLParser({
-    ignoreAttributes: false,
-    attributeNamePrefix: '',
-    preserveOrder: true,
-    ignoreDeclaration: true,
-    alwaysCreateTextNode: true
-  })
-  return parser.parse(buf)
 }
 
 function postProcess (node: any): XmlNode {
@@ -61,6 +48,9 @@ function postProcessBackward (node: XmlNode): any {
       '#text': node.attr.text
     }
   } else {
+    if (!node.child) {
+      console.log(node)
+    }
     res[node.tag] = node.child.map(postProcessBackward)
     for (const k in node.attr) {
       if (node.attr[k] === undefined) {
@@ -72,8 +62,15 @@ function postProcessBackward (node: XmlNode): any {
   }
 }
 
-export async function loadXml (path: string): Promise<XmlNode> {
-  return postProcess((await readXml(path))[0])
+export function readXml (buf: string) {
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: '',
+    preserveOrder: true,
+    ignoreDeclaration: true,
+    alwaysCreateTextNode: true
+  })
+  return postProcess(parser.parse(buf)[0])
 }
 
 export function saveXml (node: XmlNode): string {
