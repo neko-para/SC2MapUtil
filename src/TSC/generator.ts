@@ -1,8 +1,8 @@
-import fs from "fs/promises"
-import { saveXml, XmlNode } from "./xml.js"
-import * as Ast from "./types.js"
-import * as TSC from "./tsc-parser.js"
-import * as TSD from "./tsd-parser.js"
+import fs from 'fs/promises'
+import { saveXml, XmlNode } from './xml.js'
+import * as Ast from './types.js'
+import * as TSC from './tsc-parser.js'
+import * as TSD from './tsd-parser.js'
 
 class XmlNodeList {
   data: XmlNode[]
@@ -23,7 +23,7 @@ class XmlNodeList {
 }
 
 function tranLib(s: string) {
-  return s === "0" ? undefined : s
+  return s === '0' ? undefined : s
 }
 
 function ref(el: Ast.Element) {
@@ -34,23 +34,23 @@ function ref(el: Ast.Element) {
 }
 
 const TypeName = {
-  文本: "text",
-  字符串: "string",
-  整数: "int",
-  布尔: "bool",
+  文本: 'text',
+  字符串: 'string',
+  整数: 'int',
+  布尔: 'bool',
 }
 
 class AttrHelper {
   value: Record<string, string | true>
 
-  constructor (attr?: Ast.Attribute) {
+  constructor(attr?: Ast.Attribute) {
     this.value = {}
     attr?.forEach(a => {
       this.value[a.key] = a.value || true
     })
   }
 
-  has (key: string) {
+  has(key: string) {
     return key in this.value
   }
 }
@@ -64,7 +64,7 @@ class Context {
 
   constructor(p: Program) {
     this.program = p
-    this.lib = ""
+    this.lib = ''
     this.element = new XmlNodeList()
   }
 
@@ -74,7 +74,7 @@ class Context {
     if (name in TypeName) {
       els = [
         {
-          tag: "Type",
+          tag: 'Type',
           attr: {
             Value: TypeName[name],
           },
@@ -84,16 +84,16 @@ class Context {
     } else if (name in this.program.preset) {
       els = [
         {
-          tag: "Type",
+          tag: 'Type',
           attr: {
-            Value: "preset",
+            Value: 'preset',
           },
           child: [],
         },
         {
-          tag: "TypeElement",
+          tag: 'TypeElement',
           attr: {
-            Type: "Preset",
+            Type: 'Preset',
             ...ref(this.program.preset[name]),
           },
           child: [],
@@ -106,37 +106,37 @@ class Context {
       els.push({
         tag: 'Constant',
         attr: {},
-        child: []
+        child: [],
       })
     }
     return els
   }
 
   createParam(val: Ast.Value, def?: Ast.ParamDefine) {
-    const el = this.element.alloc("Element")
+    const el = this.element.alloc('Element')
     el.attr = {
-      Type: "Param",
+      Type: 'Param',
       Id: val.id,
     }
     if (def) {
       el.child.push({
-        tag: "ParameterDef",
+        tag: 'ParameterDef',
         attr: {
-          Type: "ParamDef",
+          Type: 'ParamDef',
           ...ref(def),
         },
         child: [],
       })
     }
     switch (val._type) {
-      case "direct-value":
-        if (["string", "boolean", "int"].includes(val.vtype)) {
+      case 'direct-value':
+        if (['string', 'boolean', 'int'].includes(val.vtype)) {
           el.child.push({
-            tag: "Value",
+            tag: 'Value',
             attr: {},
             child: [
               {
-                tag: "#text",
+                tag: '#text',
                 attr: {
                   text: val.value.toString(),
                 },
@@ -146,42 +146,42 @@ class Context {
           })
         }
         el.child.push({
-          tag: "ValueType",
+          tag: 'ValueType',
           attr: {
             Type: val.vtype,
           },
           child: [],
         })
         break
-      case "var-refer":
+      case 'var-refer':
         el.child.push({
-          tag: "Variable",
+          tag: 'Variable',
           attr: {
-            Type: "Variable",
+            Type: 'Variable',
             ...ref(this.variable[val.name]),
           },
           child: [],
         })
         break
-      case "preset-value": {
+      case 'preset-value': {
         const pl = this.program.preset[val.preset].item.find(
           item => item.name === val.item
         )
         el.child.push({
-          tag: "Preset",
+          tag: 'Preset',
           attr: {
-            Type: "PresetValue",
+            Type: 'PresetValue',
             ...ref(pl),
           },
           child: [],
         })
         break
       }
-      case "call-value":
+      case 'call-value':
         el.child.push({
-          tag: "FunctionCall",
+          tag: 'FunctionCall',
           attr: {
-            Type: "FunctionCall",
+            Type: 'FunctionCall',
             ...ref(val.call),
           },
           child: [],
@@ -192,20 +192,20 @@ class Context {
   }
 
   createVariableDef(vd: Ast.VariableDefine) {
-    const el = this.element.alloc("Element")
+    const el = this.element.alloc('Element')
     el.attr = {
-      Type: "Variable",
+      Type: 'Variable',
       Id: vd.id,
     }
     el.child.push({
-      tag: "VariableType",
+      tag: 'VariableType',
       attr: {},
       child: [...this.createType(vd.type, vd.flag)],
     })
     el.child.push({
-      tag: "Value",
+      tag: 'Value',
       attr: {
-        Type: "Param",
+        Type: 'Param',
         ...ref(vd.value),
       },
       child: [],
@@ -214,38 +214,38 @@ class Context {
   }
 
   createParamDef(pd: Ast.ParamDefine) {
-    const el = this.element.alloc("Element")
+    const el = this.element.alloc('Element')
     el.attr = {
-      Type: "ParamDef",
+      Type: 'ParamDef',
       Id: pd.id,
     }
     el.child.push({
-      tag: "ParameterType",
+      tag: 'ParameterType',
       attr: {},
       child: [...this.createType(pd.type)],
     })
   }
 
   createFunctionCall(fc: Ast.FunctionCall) {
-    const el = this.element.alloc("Element")
+    const el = this.element.alloc('Element')
     el.attr = {
-      Type: "FunctionCall",
+      Type: 'FunctionCall',
       Id: fc.id,
     }
     const fi = this.program.function[fc.func]
     el.child.push({
-      tag: "FunctionDef",
+      tag: 'FunctionDef',
       attr: {
-        Type: "FunctionDef",
+        Type: 'FunctionDef',
         ...ref(fi),
       },
       child: [],
     })
     fc.param.forEach((p, i) => {
       el.child.push({
-        tag: "Parameter",
+        tag: 'Parameter',
         attr: {
-          Type: "Param",
+          Type: 'Param',
           ...ref(p),
         },
         child: [],
@@ -255,19 +255,19 @@ class Context {
   }
 
   buildItem(item: Ast.DFolder | string) {
-    if (typeof item === "string") {
+    if (typeof item === 'string') {
       this.variable = {}
       if (item in this.program.trigger) {
         const obj = this.program.trigger[item]
-        const el = this.element.alloc("Element")
+        const el = this.element.alloc('Element')
         el.attr = {
-          Type: "Trigger",
+          Type: 'Trigger',
           Id: obj.id,
         }
         el.child.push({
-          tag: "Event",
+          tag: 'Event',
           attr: {
-            Type: "FunctionCall",
+            Type: 'FunctionCall',
             ...ref(obj.event),
           },
           child: [],
@@ -276,9 +276,9 @@ class Context {
         obj.vars.forEach(v => {
           this.variable[v.name] = v
           el.child.push({
-            tag: "Variable",
+            tag: 'Variable',
             attr: {
-              Type: "Variable",
+              Type: 'Variable',
               ...ref(v),
             },
             child: [],
@@ -287,9 +287,9 @@ class Context {
         })
         obj.prog.forEach(p => {
           el.child.push({
-            tag: "Action",
+            tag: 'Action',
             attr: {
-              Type: "FunctionCall",
+              Type: 'FunctionCall',
               ...ref(p),
             },
             child: [],
@@ -297,37 +297,37 @@ class Context {
           this.createFunctionCall(p)
         })
         return {
-          tag: "Item",
+          tag: 'Item',
           attr: {
-            Type: "Trigger",
+            Type: 'Trigger',
             ...ref(obj),
           },
           child: [],
         }
       } else if (item in this.program.function) {
         const obj = this.program.function[item] as Ast.FunctionDefine
-        const el = this.element.alloc("Element")
+        const el = this.element.alloc('Element')
         el.attr = {
-          Type: "FunctionDef",
+          Type: 'FunctionDef',
           Id: obj.id,
         }
         const fh = new AttrHelper(obj.flag)
         if (fh.has('func')) {
           el.child.push({
-            tag: "FlagCall",
+            tag: 'FlagCall',
             attr: {},
             child: [],
           })
         } else if (fh.has('action')) {
           el.child.push({
-            tag: "FlagAction",
+            tag: 'FlagAction',
             attr: {},
             child: [],
           })
         }
-        if (obj.ret !== "void") {
+        if (obj.ret !== 'void') {
           el.child.push({
-            tag: "ReturnType",
+            tag: 'ReturnType',
             attr: {},
             child: [...this.createType(obj.ret)],
           })
@@ -335,9 +335,9 @@ class Context {
         obj.params.forEach(p => {
           this.variable[p.name] = p
           el.child.push({
-            tag: "Parameter",
+            tag: 'Parameter',
             attr: {
-              Type: "ParamDef",
+              Type: 'ParamDef',
               ...ref(p),
             },
             child: [],
@@ -347,9 +347,9 @@ class Context {
         obj.vars.forEach(v => {
           this.variable[v.name] = v
           el.child.push({
-            tag: "Variable",
+            tag: 'Variable',
             attr: {
-              Type: "Variable",
+              Type: 'Variable',
               ...ref(v),
             },
             child: [],
@@ -358,9 +358,9 @@ class Context {
         })
         obj.prog.forEach(p => {
           el.child.push({
-            tag: "FunctionCall",
+            tag: 'FunctionCall',
             attr: {
-              Type: "FunctionCall",
+              Type: 'FunctionCall',
               ...ref(p),
             },
             child: [],
@@ -368,58 +368,58 @@ class Context {
           this.createFunctionCall(p)
         })
         return {
-          tag: "Item",
+          tag: 'Item',
           attr: {
-            Type: "FunctionDef",
+            Type: 'FunctionDef',
             ...ref(obj),
           },
           child: [],
         }
       } else if (item in this.program.preset) {
         const obj = this.program.preset[item]
-        const el = this.element.alloc("Element")
+        const el = this.element.alloc('Element')
         el.attr = {
-          Type: "Preset",
+          Type: 'Preset',
           Id: obj.id,
         }
         el.child.push(
           {
-            tag: "PresetInteger",
+            tag: 'PresetInteger',
             attr: {},
             child: [],
           },
           {
-            tag: "BaseType",
+            tag: 'BaseType',
             attr: {
-              Value: "int",
+              Value: 'int',
             },
             child: [],
           },
           {
-            tag: "PresetGenConstVar",
+            tag: 'PresetGenConstVar',
             attr: {},
             child: [],
           }
         )
         obj.item.forEach(it => {
           el.child.push({
-            tag: "Item",
+            tag: 'Item',
             attr: {
-              Type: "PresetValue",
+              Type: 'PresetValue',
               ...ref(it),
             },
             child: [],
           })
-          const e = this.element.alloc("Element")
+          const e = this.element.alloc('Element')
           e.attr = {
-            Type: "PresetValue",
+            Type: 'PresetValue',
             Id: it.id,
           }
         })
         return {
-          tag: "Item",
+          tag: 'Item',
           attr: {
-            Type: "Preset",
+            Type: 'Preset',
             ...ref(obj),
           },
           child: [],
@@ -428,25 +428,25 @@ class Context {
         const obj = this.program.variable[item] as Ast.GlobalVariableDefine
         this.createVariableDef(obj)
         return {
-          tag: "Item",
+          tag: 'Item',
           attr: {
-            Type: "Variable",
+            Type: 'Variable',
             ...ref(obj),
           },
           child: [],
         }
       }
     } else {
-      const el = this.element.alloc("Element")
+      const el = this.element.alloc('Element')
       el.attr = {
-        Type: "Category",
+        Type: 'Category',
         Id: item.id,
       }
       el.child = item.item.map(it => this.buildItem(it))
       return {
-        tag: "Item",
+        tag: 'Item',
         attr: {
-          Type: "Category",
+          Type: 'Category',
           Libraray: tranLib(this.lib),
           Id: item.id,
         },
@@ -457,7 +457,7 @@ class Context {
 
   build(lib: Ast.DLibrary) {
     this.lib = lib.name
-    const root = this.element.alloc("Root")
+    const root = this.element.alloc('Root')
     lib.item.forEach(it => {
       root.child.push(this.buildItem(it))
     })
@@ -476,12 +476,12 @@ export class Program {
 
   constructor() {
     this.GS = [
-      "DocInfo/DescLong=完全没有任何描述。",
-      "DocInfo/DescShort=任意",
-      "DocInfo/Name=这只是另一张《星际争霸II》地图",
-      "MapInfo/Player00/Name=中立",
-      "MapInfo/Player01/Name=玩家1",
-      "MapInfo/Player02/Name=敌对",
+      'DocInfo/DescLong=完全没有任何描述。',
+      'DocInfo/DescShort=任意',
+      'DocInfo/Name=这只是另一张《星际争霸II》地图',
+      'MapInfo/Player00/Name=中立',
+      'MapInfo/Player01/Name=玩家1',
+      'MapInfo/Player02/Name=敌对',
     ]
     this.TS = []
     this.ID = {}
@@ -500,10 +500,10 @@ export class Program {
 
   put(type: string, text: string) {
     switch (type) {
-      case "gs":
+      case 'gs':
         this.GS.push(text)
         break
-      case "ts":
+      case 'ts':
         this.TS.push(text)
         break
     }
@@ -531,34 +531,34 @@ export class Program {
     )
     p.forEach(scope => {
       switch (scope._type) {
-        case "import":
+        case 'import':
           scope.define.forEach(d => {
             switch (d._type) {
-              case "ext-func-def":
+              case 'ext-func-def':
                 this.function[d.name] = d
                 break
-              case "ext-preset-def":
+              case 'ext-preset-def':
                 this.preset[d.name] = d
                 break
-              case "ext-var-def":
+              case 'ext-var-def':
                 this.variable[d.name] = d
                 break
             }
           })
           break
-        case "library":
+        case 'library':
           scope.define.forEach(d => {
             switch (d._type) {
-              case "trigger-def":
+              case 'trigger-def':
                 this.trigger[d.name] = d
                 break
-              case "func-def":
+              case 'func-def':
                 this.function[d.name] = d
                 break
-              case "preset-def":
+              case 'preset-def':
                 this.preset[d.name] = d
                 break
-              case "var-def":
+              case 'var-def':
                 this.variable[d.name] = d
             }
           })
@@ -586,7 +586,7 @@ export class Program {
     )
 
     const result = {
-      tag: "TriggerData",
+      tag: 'TriggerData',
       attr: {},
       child: [],
     }
@@ -594,11 +594,11 @@ export class Program {
     libs.forEach(lib => {
       const ctx = new Context(this)
       ctx.build(lib)
-      if (lib.name === "0") {
+      if (lib.name === '0') {
         result.child.push(...ctx.element.data)
       } else {
         result.child.push({
-          tag: "Library",
+          tag: 'Library',
           attr: {
             Id: lib.name,
           },
@@ -607,17 +607,17 @@ export class Program {
       }
     })
 
-    const dir = "C:/Users/nekosu/Desktop/1.SC2Map"
-    const locale = "zhCN.SC2Data"
+    const dir = 'C:/Users/nekosu/Desktop/1.SC2Map'
+    const locale = 'zhCN.SC2Data'
 
     await fs.writeFile(`${dir}/Triggers`, saveXml(result))
     await fs.writeFile(
       `${dir}/${locale}/LocalizedData/GameStrings.txt`,
-      this.GS.join("\n")
+      this.GS.join('\n')
     )
     await fs.writeFile(
       `${dir}/${locale}/LocalizedData/TriggerStrings.txt`,
-      this.TS.join("\n")
+      this.TS.join('\n')
     )
   }
 }

@@ -1,5 +1,5 @@
 function dump<T>(v: T): T {
-  if (typeof v === "object") {
+  if (typeof v === 'object') {
     if (v instanceof Function) {
       return v
     } else if (v instanceof Array) {
@@ -100,7 +100,7 @@ export class Rule<
   }
 
   entry(key: Keyset) {
-    return this.typelessFor("%entry")
+    return this.typelessFor('%entry')
       .when(key)
       .do(x => x)
   }
@@ -261,14 +261,14 @@ export class SimpleParser<TokenType extends TokenTyper> {
     this.lexRule = lex
     this.postProcess = post
     this.parseRule = {
-      "%": [[["$begin", "%entry", "$end"], (_, v) => v]],
+      '%': [[['$begin', '%entry', '$end'], (_, v) => v]],
     }
 
     this.rule = new Rule(this)
     this.tokens = []
     this.error = {
       pos: -1,
-      meet: "",
+      meet: '',
       choice: new Set(),
     }
   }
@@ -364,7 +364,7 @@ export class SimpleParser<TokenType extends TokenTyper> {
     if (ptr >= this.tokens.length) {
       return [false, []]
     }
-    if (name.startsWith("$")) {
+    if (name.startsWith('$')) {
       if (this.tokens[ptr].name === name) {
         return [true, [[this.tokens[ptr].value, 1]]]
       } else {
@@ -381,7 +381,7 @@ export class SimpleParser<TokenType extends TokenTyper> {
     const opts = this.parseRule[name]
     if (!opts) {
       console.log(this.parseRule)
-      throw [ `Unknown expr ${name}` ]
+      throw [`Unknown expr ${name}`]
     }
     const result: [any, number][] = []
     for (const [grammar, process] of opts) {
@@ -397,13 +397,13 @@ export class SimpleParser<TokenType extends TokenTyper> {
   parse(text: string) {
     this.error = {
       pos: -1,
-      meet: "",
+      meet: '',
       choice: new Set(),
     }
     this.tokens = [
       {
-        name: "$begin",
-        raw: "",
+        name: '$begin',
+        raw: '',
         value: null,
         pos: 0,
       },
@@ -412,15 +412,15 @@ export class SimpleParser<TokenType extends TokenTyper> {
       this.tokens.push(token)
     }
     this.tokens.push({
-      name: "$end",
-      raw: "",
+      name: '$end',
+      raw: '',
       value: null,
       pos: 0,
     })
-    const [state, result] = this.doParse("%")
+    const [state, result] = this.doParse('%')
     if (state) {
       if (result.length > 1) {
-        console.log("multiple result detected!")
+        console.log('multiple result detected!')
       }
       return result[0][0]
     } else {
@@ -429,7 +429,7 @@ export class SimpleParser<TokenType extends TokenTyper> {
           this.error.pos - 10,
           this.error.pos
         )} >> ${text.substring(this.error.pos, this.error.pos + 10)}
-Want ${Array.from(this.error.choice.keys()).join(", ")}
+Want ${Array.from(this.error.choice.keys()).join(', ')}
 Meet ${this.error.meet}`,
         this.error,
       ]

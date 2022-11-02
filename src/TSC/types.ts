@@ -17,48 +17,48 @@ export type Value =
   | FunctionCallValue
 
 export interface DirectValue extends Node, Element {
-  _type: "direct-value"
+  _type: 'direct-value'
   vtype: string
 }
 
 export interface DirectText extends DirectValue {
-  vtype: "text"
+  vtype: 'text'
   value: string
 }
 
 export interface DirectString extends DirectValue {
-  vtype: "string"
+  vtype: 'string'
   value: string
 }
 
 export interface DirectInt extends DirectValue {
-  vtype: "int"
+  vtype: 'int'
   value: number
 }
 
 export interface DirectBoolean extends DirectValue {
-  vtype: "boolean"
+  vtype: 'boolean'
   value: boolean
 }
 
 export interface PresetValue extends Node, Element {
-  _type: "preset-value"
+  _type: 'preset-value'
   preset: string
   item: string
 }
 
 export interface VariableRefer extends Node, Element {
-  _type: "var-refer"
+  _type: 'var-refer'
   name: string
 }
 
 export interface FunctionCallValue extends Node, Element {
-  _type: "call-value"
+  _type: 'call-value'
   call: FunctionCall
 }
 
 export interface FunctionCall extends Node, Element {
-  _type: "call"
+  _type: 'call'
   func: string
   param: Value[]
 }
@@ -96,7 +96,7 @@ export interface ParamDefine extends Element {
 }
 
 export interface TriggerDefine extends Node, Element {
-  _type: "trigger-def"
+  _type: 'trigger-def'
   name: string
   desc: string
   flag: Attribute
@@ -116,12 +116,12 @@ export interface PresetInfo extends Node, Element {
 }
 
 export interface PresetDefine extends PresetInfo {
-  _type: "preset-def"
+  _type: 'preset-def'
   desc: string
 }
 
 export interface ExternalPresetDefine extends PresetInfo {
-  _type: "ext-preset-def"
+  _type: 'ext-preset-def'
 }
 
 export interface FunctionInfo extends Node, Element {
@@ -132,33 +132,40 @@ export interface FunctionInfo extends Node, Element {
 }
 
 export interface FunctionDefine extends FunctionInfo {
-  _type: "func-def"
+  _type: 'func-def'
   desc: string
   vars: VariableDefine[]
   prog: FunctionCall[]
 }
 
 export interface ExternalFunctionDefine extends FunctionInfo {
-  _type: "ext-func-def"
+  _type: 'ext-func-def'
 }
 
 export interface Category extends Node, Element {
-  _type: "category"
+  _type: 'category'
   desc: string
   item: (string | Category)[]
 }
 
-export type ImportDefine = ExternalPresetDefine | ExternalVariableDefine | ExternalFunctionDefine
-export type LibraryDefine = PresetDefine | GlobalVariableDefine | FunctionDefine | TriggerDefine
+export type ImportDefine =
+  | ExternalPresetDefine
+  | ExternalVariableDefine
+  | ExternalFunctionDefine
+export type LibraryDefine =
+  | PresetDefine
+  | GlobalVariableDefine
+  | FunctionDefine
+  | TriggerDefine
 
 export interface ImportScope extends Node {
-  _type: "import"
+  _type: 'import'
   library: string
   define: ImportDefine[]
 }
 
 export interface LibraryScope extends Node {
-  _type: "library"
+  _type: 'library'
   library: string
   define: LibraryDefine[]
 }
