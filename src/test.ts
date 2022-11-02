@@ -2,8 +2,12 @@ import { Program } from './TSC/generator.js'
 
 async function main() {
   const p = new Program()
-  await p.load('./test/test.sct')
-  await p.generate('./test/info.scd')
+  try {
+    await p.load('./test/test.sct')
+    await p.generate('./test/info.scd')
+  } catch (msg) {
+    console.log(msg)
+  }
 }
 
 main()

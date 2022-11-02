@@ -53,6 +53,9 @@ interface NodeTypes {
   AttributeItems: Ast.AttributeItem[]
 
   ReturnType: string
+  ArrayType: Ast.ArrayType
+  ArrayDim: Ast.DirectInt | Ast.VariableRefer
+  ArrayDims: (Ast.DirectInt | Ast.VariableRefer)[]
 
   LocalVariableDef: Ast.VariableDefine
   LocalVariableDefs: Ast.VariableDefine[]
@@ -161,6 +164,12 @@ export function CreateParser() {
       _type: 'var-refer',
       name,
     }))
+    .when('$label', '$[', 'Values', '$]')
+    .do((name, _, dims) => ({
+      _type: 'var-array-refer',
+      name,
+      dims,
+    }))
     .when('Call')
     .do(call => ({
       _type: 'call-value',
@@ -230,10 +239,36 @@ export function CreateParser() {
     .when('$->', '$label')
     .do((_, r) => r)
 
+    .for('ArrayType')
+    .when('$label')
+    .do(type => ({
+      type,
+      dims: [],
+    }))
+    .when('$label', '$[', 'ArrayDims', '$]')
+    .do((type, _, dims) => ({
+      type,
+      dims,
+    }))
+
+    .with(r => r._some_sep('ArrayDims', 'ArrayDim', '$,'))
+    .for('ArrayDim')
+    .when('$int')
+    .do(value => ({
+      _type: 'direct-value',
+      vtype: 'int',
+      value,
+    }))
+    .when('$label')
+    .do(name => ({
+      _type: 'var-refer',
+      name,
+    }))
+
     .with(r => r._some('LocalVariableDefs', 'LocalVariableDef'))
     .for('LocalVariableDef')
-    .when('Attribute', '$label', '$label', '$=', 'Value')
-    .do((flag, type, name, _, value) => ({
+    .when('Attribute', '$label', '$:', 'ArrayType', '$=', 'Value')
+    .do((flag, name, _, type, _2, value) => ({
       type,
       name,
       value,
@@ -328,7 +363,7 @@ export function CreateParser() {
       '$label',
       '$str',
       '$:',
-      '$label',
+      'ArrayType',
       '$=',
       'Value',
       '$;'
@@ -359,6 +394,27 @@ export function CreateParser() {
     .do((name, _, id) => ({
       id,
       name,
+    }))
+
+    .for('ExternalVariableDef')
+    .when(
+      'Attribute',
+      '$var',
+      '$label',
+      '$str',
+      '$:',
+      'ArrayType',
+      '$=',
+      '$id',
+      '$;'
+    )
+    .do((flag, _, name, desc, _3, type, _4, id) => ({
+      _type: 'ext-var-def',
+      flag,
+      desc,
+      name,
+      type,
+      id,
     }))
 
     .for('ExternalFunctionDef')
@@ -434,6 +490,11 @@ function TraceIntoValue(
           )
           break
       }
+      break
+    case 'var-array-refer':
+      val.dims.forEach(d => {
+        TraceIntoValue(d, lib, gen, put)
+      })
       break
     case 'call':
       val.param.forEach(p => {

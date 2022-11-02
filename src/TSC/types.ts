@@ -14,6 +14,7 @@ export type Value =
   | DirectBoolean
   | PresetValue
   | VariableRefer
+  | VariableArrayRefer
   | FunctionCallValue
 
 export interface DirectValue extends Node, Element {
@@ -52,6 +53,12 @@ export interface VariableRefer extends Node, Element {
   name: string
 }
 
+export interface VariableArrayRefer extends Node, Element {
+  _type: 'var-array-refer'
+  name: string
+  dims: Value[]
+}
+
 export interface FunctionCallValue extends Node, Element {
   _type: 'call-value'
   call: FunctionCall
@@ -70,8 +77,13 @@ export interface AttributeItem {
 
 export type Attribute = AttributeItem[]
 
-export interface VariableInfo extends Element {
+export interface ArrayType {
   type: string
+  dims: (DirectInt | VariableRefer)[]
+}
+
+export interface VariableInfo extends Element {
+  type: ArrayType
   name: string
   flag: Attribute
 }

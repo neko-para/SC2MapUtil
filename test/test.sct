@@ -11,26 +11,11 @@ import "Ntve" {
 }
 
 library "1" {
-  [const] var 变量1 "变量111": 整数 = 2;
-  preset 枚举 "测试枚举" {
-    项目1,
-    项目2
-  }
-  [func] fn 测试 "测试" (a: 整数) -> 布尔
-    整数 b = 2 {
-    返回(真);
-  }
-  [action] fn 测试2 "测试2" (a: 整数)
-    整数 b = 2 {
-  }
-}
+  [const] var sz "Size": 整数 = 3;
+  var arr "Array": 整数[2, sz] = 2;
 
-library "0" {
-  trigger 初始化 "初始化" 游戏_地图初始化()
-    文本 testdoc = 文本"999"
-    字符串 test = "12345" {
-    设置变量 (testdoc, 文本"6789");
-    显示文本 (所有玩家(), 消息区域.聊天, testdoc);
-    测试2 (1);
+  fn test "test" ()
+    k: 整数 = 2 {
+    设置变量(arr[1, k], 999);
   }
 }

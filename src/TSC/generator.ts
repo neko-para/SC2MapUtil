@@ -59,13 +59,33 @@ class Context {
   program: Program
   lib: string
   param: Record<string, string>
-  variable: Record<string, Ast.Element>
+  variable: Record<string, string>
   element: XmlNodeList
 
   constructor(p: Program) {
     this.program = p
     this.lib = ''
+    this.param = {}
+    this.variable = {}
     this.element = new XmlNodeList()
+  }
+
+  queryVariable(name: string) {
+    if (name in this.variable) {
+      return {
+        id: this.variable[name],
+        lib: this.lib,
+      }
+    } else if (name in this.param) {
+      return {
+        id: this.param[name],
+        lib: this.lib,
+      }
+    } else if (name in this.program.variable) {
+      return this.program.variable[name]
+    } else {
+      throw [`Unknown variable ${name}`]
+    }
   }
 
   createType(name: string, flag?: Ast.Attribute) {
@@ -109,6 +129,36 @@ class Context {
         child: [],
       })
     }
+    return els
+  }
+
+  createArrayType(type: Ast.ArrayType, flag?: Ast.Attribute) {
+    const els = this.createType(type.type, flag)
+    type.dims.forEach((d, i) => {
+      switch (d._type) {
+        case 'direct-value':
+          els.push({
+            tag: 'ArraySize',
+            attr: {
+              Dim: i.toString(),
+              Value: d.value.toString(),
+            },
+            child: [],
+          })
+          break
+        case 'var-refer':
+          els.push({
+            tag: 'ArraySize',
+            attr: {
+              Dim: i.toString(),
+              Type: 'Variable',
+              ...ref(this.program.variable[d.name]),
+            },
+            child: [],
+          })
+          break
+      }
+    })
     return els
   }
 
@@ -158,9 +208,30 @@ class Context {
           tag: 'Variable',
           attr: {
             Type: 'Variable',
-            ...ref(this.variable[val.name]),
+            ...ref(this.queryVariable(val.name)),
           },
           child: [],
+        })
+        break
+      case 'var-array-refer':
+        el.child.push({
+          tag: 'Variable',
+          attr: {
+            Type: 'Variable',
+            ...ref(this.queryVariable(val.name)),
+          },
+          child: [],
+        })
+        val.dims.forEach(d => {
+          el.child.push({
+            tag: 'Array',
+            attr: {
+              Type: 'Param',
+              ...ref(d),
+            },
+            child: [],
+          })
+          this.createParam(d)
         })
         break
       case 'preset-value': {
@@ -200,7 +271,7 @@ class Context {
     el.child.push({
       tag: 'VariableType',
       attr: {},
-      child: [...this.createType(vd.type, vd.flag)],
+      child: [...this.createArrayType(vd.type, vd.flag)],
     })
     el.child.push({
       tag: 'Value',
@@ -274,7 +345,7 @@ class Context {
         })
         this.createFunctionCall(obj.event)
         obj.vars.forEach(v => {
-          this.variable[v.name] = v
+          this.variable[v.name] = v.id
           el.child.push({
             tag: 'Variable',
             attr: {
@@ -333,7 +404,7 @@ class Context {
           })
         }
         obj.params.forEach(p => {
-          this.variable[p.name] = p
+          this.param[p.name] = p.id
           el.child.push({
             tag: 'Parameter',
             attr: {
@@ -345,7 +416,7 @@ class Context {
           this.createParamDef(p)
         })
         obj.vars.forEach(v => {
-          this.variable[v.name] = v
+          this.variable[v.name] = v.id
           el.child.push({
             tag: 'Variable',
             attr: {
@@ -560,6 +631,7 @@ export class Program {
                 break
               case 'var-def':
                 this.variable[d.name] = d
+                break
             }
           })
           break
