@@ -35,10 +35,14 @@ interface NodeTypes {
   Value: Ast.Value
   Values: Ast.Value[]
 
+  ValueOrBlock: Ast.ParamType
+  ValueOrBlocks: Ast.ParamType[]
+
   Call: Ast.FunctionCall
 
   Statement: Ast.FunctionCall
   Statements: Ast.FunctionCall[]
+  StatementBlock: Ast.StatementBlock
 
   LibraryScope: Ast.LibraryScope
   LibraryContent: Ast.LibraryDefine
@@ -176,8 +180,13 @@ export function CreateParser() {
       call,
     }))
 
+    .with(r => r._some_sep('ValueOrBlocks', 'ValueOrBlock', '$,'))
+    .for('ValueOrBlock')
+    .sameas('Value')
+    .sameas('StatementBlock')
+
     .for('Call')
-    .when('$label', '$(', 'Values', '$)')
+    .when('$label', '$(', 'ValueOrBlocks', '$)')
     .do((func, _, param) => ({
       _type: 'call',
       func,
@@ -188,6 +197,12 @@ export function CreateParser() {
     .for('Statement')
     .when('Call', '$;')
     .do(x => x)
+    .for('StatementBlock')
+    .when('${', 'Statements', '$}')
+    .do((_, prog) => ({
+      _type: 'block',
+      prog,
+    }))
 
     .for('LibraryScope')
     .when('$library', '$str', '${', 'LibraryContents', '$}')
@@ -298,11 +313,9 @@ export function CreateParser() {
       '$str',
       'Call',
       'LocalVariableDefs',
-      '${',
-      'Statements',
-      '$}'
+      'StatementBlock'
     )
-    .do((flag, _, name, desc, event, vars, _2, prog) => ({
+    .do((flag, _, name, desc, event, vars, prog) => ({
       _type: 'trigger-def',
       flag,
       name,
@@ -323,11 +336,9 @@ export function CreateParser() {
       '$)',
       'ReturnType',
       'LocalVariableDefs',
-      '${',
-      'Statements',
-      '$}'
+      'StatementBlock'
     )
-    .do((flag, _, name, desc, _2, params, _3, ret, vars, _4, prog) => ({
+    .do((flag, _, name, desc, _2, params, _3, ret, vars, prog) => ({
       _type: 'func-def',
       flag,
       name,
@@ -498,7 +509,13 @@ function TraceIntoValue(
       break
     case 'call':
       val.param.forEach(p => {
-        TraceIntoValue(p, lib, gen, put)
+        if (p._type === 'block') {
+          p.prog.forEach(s => {
+            TraceIntoValue(s, lib, gen, put)
+          })
+        } else {
+          TraceIntoValue(p, lib, gen, put)
+        }
       })
       break
     case 'call-value':
@@ -561,7 +578,7 @@ export function GenerateId(
                 put('ts', `Variable/Name/${libprefix}${v.id}=${v.name}`)
                 TraceIntoValue(v.value, p.library, gen, put)
               })
-              d.prog.forEach(pr => {
+              d.prog.prog.forEach(pr => {
                 TraceIntoValue(pr, p.library, gen, put)
               })
               break
@@ -578,7 +595,7 @@ export function GenerateId(
                 put('ts', `Variable/Name/${libprefix}${v.id}=${v.name}`)
                 TraceIntoValue(v.value, p.library, gen, put)
               })
-              d.prog.forEach(pr => {
+              d.prog.prog.forEach(pr => {
                 TraceIntoValue(pr, p.library, gen, put)
               })
               break

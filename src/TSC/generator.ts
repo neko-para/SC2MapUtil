@@ -297,7 +297,7 @@ class Context {
     })
   }
 
-  createFunctionCall(fc: Ast.FunctionCall) {
+  createFunctionCall(fc: Ast.FunctionCall, sft?: Ast.ParamDefine) {
     const el = this.element.alloc('Element')
     el.attr = {
       Type: 'FunctionCall',
@@ -312,17 +312,61 @@ class Context {
       },
       child: [],
     })
-    fc.param.forEach((p, i) => {
+    if (sft) {
       el.child.push({
-        tag: 'Parameter',
+        tag: 'SubFunctionType',
         attr: {
-          Type: 'Param',
-          ...ref(p),
+          Type: 'SubFuncType',
+          ...ref(sft),
         },
         child: [],
       })
-      this.createParam(p, fi.params[i])
-    })
+    }
+    const fh = new AttrHelper(fi.flag)
+    if (fh.has('multi')) {
+      fc.param.forEach(p => {
+        if (p._type !== 'block') {
+          throw [`Non block parameter in [multi] function ${fi.name}`]
+        }
+        p.prog.forEach(s => {
+          el.child.push({
+            tag: 'FunctionCall',
+            attr: {
+              Type: 'FunctionCall',
+              ...ref(s),
+            },
+            child: [],
+          })
+          this.createFunctionCall(s, fi.params[0])
+        })
+      })
+    } else {
+      fc.param.forEach((p, i) => {
+        if (p._type === 'block') {
+          p.prog.forEach(s => {
+            el.child.push({
+              tag: 'FunctionCall',
+              attr: {
+                Type: 'FunctionCall',
+                ...ref(s),
+              },
+              child: [],
+            })
+            this.createFunctionCall(s, fi.params[i])
+          })
+        } else {
+          el.child.push({
+            tag: 'Parameter',
+            attr: {
+              Type: 'Param',
+              ...ref(p),
+            },
+            child: [],
+          })
+          this.createParam(p, fi.params[i])
+        }
+      })
+    }
   }
 
   buildItem(item: Ast.DFolder | string) {
@@ -356,7 +400,7 @@ class Context {
           })
           this.createVariableDef(v)
         })
-        obj.prog.forEach(p => {
+        obj.prog.prog.forEach(p => {
           el.child.push({
             tag: 'Action',
             attr: {
@@ -427,7 +471,7 @@ class Context {
           })
           this.createVariableDef(v)
         })
-        obj.prog.forEach(p => {
+        obj.prog.prog.forEach(p => {
           el.child.push({
             tag: 'FunctionCall',
             attr: {

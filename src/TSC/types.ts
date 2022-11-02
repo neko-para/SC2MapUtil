@@ -64,10 +64,12 @@ export interface FunctionCallValue extends Node, Element {
   call: FunctionCall
 }
 
+export type ParamType = Value | StatementBlock
+
 export interface FunctionCall extends Node, Element {
   _type: 'call'
   func: string
-  param: Value[]
+  param: ParamType[]
 }
 
 export interface AttributeItem {
@@ -107,6 +109,11 @@ export interface ParamDefine extends Element {
   name: string
 }
 
+export interface StatementBlock extends Node {
+  _type: 'block'
+  prog: FunctionCall[]
+}
+
 export interface TriggerDefine extends Node, Element {
   _type: 'trigger-def'
   name: string
@@ -114,7 +121,7 @@ export interface TriggerDefine extends Node, Element {
   flag: Attribute
   event: FunctionCall
   vars: VariableDefine[]
-  prog: FunctionCall[]
+  prog: StatementBlock
 }
 
 export interface PresetItem extends Element {
@@ -147,7 +154,7 @@ export interface FunctionDefine extends FunctionInfo {
   _type: 'func-def'
   desc: string
   vars: VariableDefine[]
-  prog: FunctionCall[]
+  prog: StatementBlock
 }
 
 export interface ExternalFunctionDefine extends FunctionInfo {
@@ -164,6 +171,7 @@ export type ImportDefine =
   | ExternalPresetDefine
   | ExternalVariableDefine
   | ExternalFunctionDefine
+
 export type LibraryDefine =
   | PresetDefine
   | GlobalVariableDefine
