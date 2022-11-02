@@ -6,8 +6,9 @@ Generate StarCraft2 triggers' data from our StarCraftTrigger DSL.
 
 ```
 library "1" "123" {
-  folder "枚举" {
-    枚举
+  folder "枚举和变量" {
+    枚举,
+    变量1
   },
   folder "目录1" {
     初始化,
@@ -20,7 +21,7 @@ library "1" "123" {
 ```
 import "Ntve" {
 
-  [] preset 消息区域 {
+  preset 消息区域 {
     聊天 = 89CC0A21
   }
 
@@ -37,12 +38,14 @@ import "Ntve" {
 
 library "1" {
 
-  [] preset 枚举 "测试枚举" {
+  [const] var 变量1 "变量111": 整数 = 2;
+
+  preset 枚举 "测试枚举" {
     项目1,
     项目2
   }
 
-  [] trigger 初始化 "初始化" 游戏_地图初始化()
+  trigger 初始化 "初始化" 游戏_地图初始化()
     文本 testdoc = 文本"999"
     字符串 test = "12345"
   {

@@ -70,10 +70,24 @@ export interface AttributeItem {
 
 export type Attribute = AttributeItem[]
 
-export interface VariableDefine extends Element {
+export interface VariableInfo extends Element {
   type: string
   name: string
+  flag: Attribute
+}
+
+export interface VariableDefine extends VariableInfo {
   value: Value
+}
+
+export interface GlobalVariableDefine extends Node, VariableDefine {
+  _type: 'var-def'
+  desc: string
+  value: Value
+}
+
+export interface ExternalVariableDefine extends Node, VariableInfo {
+  _type: 'ext-var-def'
 }
 
 export interface ParamDefine extends Element {
@@ -134,16 +148,19 @@ export interface Category extends Node, Element {
   item: (string | Category)[]
 }
 
+export type ImportDefine = ExternalPresetDefine | ExternalVariableDefine | ExternalFunctionDefine
+export type LibraryDefine = PresetDefine | GlobalVariableDefine | FunctionDefine | TriggerDefine
+
 export interface ImportScope extends Node {
   _type: "import"
   library: string
-  define: (ExternalPresetDefine | ExternalFunctionDefine)[]
+  define: ImportDefine[]
 }
 
 export interface LibraryScope extends Node {
   _type: "library"
   library: string
-  define: (TriggerDefine | FunctionDefine | PresetDefine)[]
+  define: LibraryDefine[]
 }
 
 export type Scope = LibraryScope | ImportScope

@@ -3,6 +3,7 @@ import * as Ast from "./types.js"
 
 interface NodeTypes {
   $preset: null
+  $var: null
   $fn: null
   $trigger: null
   $library: null
@@ -40,12 +41,12 @@ interface NodeTypes {
   Statements: Ast.FunctionCall[]
 
   LibraryScope: Ast.LibraryScope
-  LibraryContent: Ast.TriggerDefine | Ast.FunctionDefine | Ast.PresetDefine
-  LibraryContents: (Ast.TriggerDefine | Ast.FunctionDefine | Ast.PresetDefine)[]
+  LibraryContent: Ast.LibraryDefine
+  LibraryContents: Ast.LibraryDefine[]
 
   ImportScope: Ast.ImportScope
-  ImportContent: Ast.ExternalPresetDefine | Ast.ExternalFunctionDefine
-  ImportContents: (Ast.ExternalPresetDefine | Ast.ExternalFunctionDefine)[]
+  ImportContent: Ast.ImportDefine
+  ImportContents: Ast.ImportDefine[]
 
   Attribute: Ast.Attribute
   AttributeItem: Ast.AttributeItem
@@ -53,12 +54,13 @@ interface NodeTypes {
 
   ReturnType: string
 
-  VariableDef: Ast.VariableDefine
-  VariableDefs: Ast.VariableDefine[]
+  LocalVariableDef: Ast.VariableDefine
+  LocalVariableDefs: Ast.VariableDefine[]
   ParamDef: Ast.ParamDefine
   ParamDefs: Ast.ParamDefine[]
   PresetValueDef: Ast.PresetItem
   PresetValueDefs: Ast.PresetItem[]
+  GlobalVariableDef: Ast.GlobalVariableDefine
   TriggerDef: Ast.TriggerDefine
   FunctionDef: Ast.FunctionDefine
   PresetDef: Ast.PresetDefine
@@ -67,6 +69,7 @@ interface NodeTypes {
   ExternalParamDefs: Ast.ParamDefine[]
   ExternalPresetValueDef: Ast.PresetItem
   ExternalPresetValueDefs: Ast.PresetItem[]
+  ExternalVariableDef: Ast.ExternalVariableDefine
   ExternalFunctionDef: Ast.ExternalFunctionDefine
   ExternalPresetDef: Ast.ExternalPresetDefine
 }
@@ -93,6 +96,7 @@ export function CreateParser() {
     [
       "$preset",
       "$fn",
+      "$var",
       "$trigger",
       "$library",
       "$import",
@@ -159,8 +163,8 @@ export function CreateParser() {
     }))
     .when("Call")
     .do(call => ({
-      _type: 'call-value',
-      call
+      _type: "call-value",
+      call,
     }))
 
     .for("Call")
@@ -188,6 +192,7 @@ export function CreateParser() {
     .sameas("TriggerDef")
     .sameas("FunctionDef")
     .sameas("PresetDef")
+    .sameas("GlobalVariableDef")
 
     .for("ImportScope")
     .when("$import", "$str", "${", "ImportContents", "$}")
@@ -200,8 +205,10 @@ export function CreateParser() {
     .for("ImportContent")
     .sameas("ExternalPresetDef")
     .sameas("ExternalFunctionDef")
+    .sameas("ExternalVariableDef")
 
     .for("Attribute")
+    .when().do(() => [])
     .when("$[", "AttributeItems", "$]")
     .do((_, x) => x)
     .with(r => r._some_sep("AttributeItems", "AttributeItem", "$,"))
@@ -222,13 +229,14 @@ export function CreateParser() {
     .when("$->", "$label")
     .do((_, r) => r)
 
-    .with(r => r._some("VariableDefs", "VariableDef"))
-    .for("VariableDef")
-    .when("$label", "$label", "$=", "Value")
-    .do((type, name, _, value) => ({
+    .with(r => r._some("LocalVariableDefs", "LocalVariableDef"))
+    .for("LocalVariableDef")
+    .when("Attribute", "$label", "$label", "$=", "Value")
+    .do((flag, type, name, _, value) => ({
       type,
       name,
       value,
+      flag
     }))
 
     .with(r => r._some_sep("ParamDefs", "ParamDef", "$,"))
@@ -253,7 +261,7 @@ export function CreateParser() {
       "$label",
       "$str",
       "Call",
-      "VariableDefs",
+      "LocalVariableDefs",
       "${",
       "Statements",
       "$}"
@@ -278,7 +286,7 @@ export function CreateParser() {
       "ParamDefs",
       "$)",
       "ReturnType",
-      "VariableDefs",
+      "LocalVariableDefs",
       "${",
       "Statements",
       "$}"
@@ -310,6 +318,17 @@ export function CreateParser() {
       desc,
       flag,
       item,
+    }))
+
+    .for("GlobalVariableDef")
+    .when("Attribute", "$var", "$label", "$str", "$:", "$label", "$=", "Value", "$;")
+    .do((flag, _, name, desc, _3, type, _4, value) => ({
+      _type: "var-def",
+      flag,
+      desc,
+      name,
+      type,
+      value,
     }))
 
     .with(r => r._some_sep("ExternalParamDefs", "ExternalParamDef", "$,"))
@@ -371,6 +390,16 @@ export function CreateParser() {
       item,
     }))
 
+    .for("ExternalVariableDef")
+    .when("Attribute", "$var", "$label", "$:", "$label", "$=", "$id", "$;")
+    .do((flag, _, name, _3, type, _4, id) => ({
+      _type: "ext-var-def",
+      flag,
+      name,
+      type,
+      id
+    }))
+
   return parser
 }
 
@@ -395,7 +424,7 @@ function TraceIntoValue(
           break
       }
       break
-    case 'call':
+    case "call":
       val.param.forEach(p => {
         TraceIntoValue(p, lib, gen, put)
       })
@@ -427,6 +456,9 @@ export function GenerateId(
                 it.lib = p.library
               })
               break
+            case 'ext-var-def':
+              d.lib = p.library
+              break
           }
         })
         break
@@ -443,6 +475,10 @@ export function GenerateId(
                 it.lib = p.library
                 put("ts", `PresetValue/Name/${libprefix}${it.id}=${it.name}`)
               })
+              break
+            case 'var-def':
+              put("ts", `Variable/Name/${libprefix}${d.id}=${d.desc}`)
+              TraceIntoValue(d.value, p.library, gen, put)
               break
             case "trigger-def":
               put("ts", `Trigger/Name/${libprefix}${d.id}=${d.desc}`)

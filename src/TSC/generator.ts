@@ -40,6 +40,21 @@ const TypeName = {
   布尔: "bool",
 }
 
+class AttrHelper {
+  value: Record<string, string | true>
+
+  constructor (attr?: Ast.Attribute) {
+    this.value = {}
+    attr?.forEach(a => {
+      this.value[a.key] = a.value || true
+    })
+  }
+
+  has (key: string) {
+    return key in this.value
+  }
+}
+
 class Context {
   program: Program
   lib: string
@@ -53,16 +68,48 @@ class Context {
     this.element = new XmlNodeList()
   }
 
-  createType(name: string) {
-    return [
-      {
-        tag: "Type",
-        attr: {
-          Value: TypeName[name],
+  createType(name: string, flag?: Ast.Attribute) {
+    let els: XmlNode[] = null
+    const fh = new AttrHelper(flag)
+    if (name in TypeName) {
+      els = [
+        {
+          tag: "Type",
+          attr: {
+            Value: TypeName[name],
+          },
+          child: [],
         },
-        child: [],
-      },
-    ]
+      ]
+    } else if (name in this.program.preset) {
+      els = [
+        {
+          tag: "Type",
+          attr: {
+            Value: "preset",
+          },
+          child: [],
+        },
+        {
+          tag: "TypeElement",
+          attr: {
+            Type: "Preset",
+            ...ref(this.program.preset[name]),
+          },
+          child: [],
+        },
+      ]
+    } else {
+      throw [`Unknown type ${name}`]
+    }
+    if (fh.has('const')) {
+      els.push({
+        tag: 'Constant',
+        attr: {},
+        child: []
+      })
+    }
+    return els
   }
 
   createParam(val: Ast.Value, def?: Ast.ParamDefine) {
@@ -111,7 +158,7 @@ class Context {
           tag: "Variable",
           attr: {
             Type: "Variable",
-            ...ref(this.variable[val.name])
+            ...ref(this.variable[val.name]),
           },
           child: [],
         })
@@ -135,7 +182,7 @@ class Context {
           tag: "FunctionCall",
           attr: {
             Type: "FunctionCall",
-            ...ref(val.call)
+            ...ref(val.call),
           },
           child: [],
         })
@@ -153,7 +200,7 @@ class Context {
     el.child.push({
       tag: "VariableType",
       attr: {},
-      child: [...this.createType(vd.type)],
+      child: [...this.createType(vd.type, vd.flag)],
     })
     el.child.push({
       tag: "Value",
@@ -264,13 +311,14 @@ class Context {
           Type: "FunctionDef",
           Id: obj.id,
         }
-        if (obj.flag.findIndex(a => a.key === "func") !== -1) {
+        const fh = new AttrHelper(obj.flag)
+        if (fh.has('func')) {
           el.child.push({
             tag: "FlagCall",
             attr: {},
             child: [],
           })
-        } else if (obj.flag.findIndex(a => a.key === "action") !== -1) {
+        } else if (fh.has('action')) {
           el.child.push({
             tag: "FlagAction",
             attr: {},
@@ -376,6 +424,17 @@ class Context {
           },
           child: [],
         }
+      } else if (item in this.program.variable) {
+        const obj = this.program.variable[item] as Ast.GlobalVariableDefine
+        this.createVariableDef(obj)
+        return {
+          tag: "Item",
+          attr: {
+            Type: "Variable",
+            ...ref(obj),
+          },
+          child: [],
+        }
       }
     } else {
       const el = this.element.alloc("Element")
@@ -413,6 +472,7 @@ export class Program {
   preset: Record<string, Ast.PresetInfo>
   function: Record<string, Ast.FunctionInfo>
   trigger: Record<string, Ast.TriggerDefine>
+  variable: Record<string, Ast.VariableInfo>
 
   constructor() {
     this.GS = [
@@ -428,6 +488,7 @@ export class Program {
     this.trigger = {}
     this.preset = {}
     this.function = {}
+    this.variable = {}
   }
 
   gen(lib: string) {
@@ -479,6 +540,9 @@ export class Program {
               case "ext-preset-def":
                 this.preset[d.name] = d
                 break
+              case "ext-var-def":
+                this.variable[d.name] = d
+                break
             }
           })
           break
@@ -494,6 +558,8 @@ export class Program {
               case "preset-def":
                 this.preset[d.name] = d
                 break
+              case "var-def":
+                this.variable[d.name] = d
             }
           })
           break
@@ -545,7 +611,13 @@ export class Program {
     const locale = "zhCN.SC2Data"
 
     await fs.writeFile(`${dir}/Triggers`, saveXml(result))
-    await fs.writeFile(`${dir}/${locale}/LocalizedData/GameStrings.txt`, this.GS.join("\n"))
-    await fs.writeFile(`${dir}/${locale}/LocalizedData/TriggerStrings.txt`, this.TS.join("\n"))
+    await fs.writeFile(
+      `${dir}/${locale}/LocalizedData/GameStrings.txt`,
+      this.GS.join("\n")
+    )
+    await fs.writeFile(
+      `${dir}/${locale}/LocalizedData/TriggerStrings.txt`,
+      this.TS.join("\n")
+    )
   }
 }
