@@ -3,6 +3,10 @@ import { saveXml, XmlNode } from './xml.js'
 import * as Ast from './types.js'
 import * as TSC from './tsc-parser.js'
 import * as TSD from './tsd-parser.js'
+import { deflate as _deflate, inflate as _inflate } from 'zlib'
+import { promisify } from 'util'
+const deflate = promisify(_deflate)
+const inflate = promisify(_inflate)
 
 class XmlNodeList {
   data: XmlNode[]
@@ -590,14 +594,7 @@ export class Program {
   variable: Record<string, Ast.VariableInfo>
 
   constructor() {
-    this.GS = [
-      'DocInfo/DescLong=完全没有任何描述。',
-      'DocInfo/DescShort=任意',
-      'DocInfo/Name=这只是另一张《星际争霸II》地图',
-      'MapInfo/Player00/Name=中立',
-      'MapInfo/Player01/Name=玩家1',
-      'MapInfo/Player02/Name=敌对',
-    ]
+    this.GS = []
     this.TS = []
     this.ID = {}
     this.trigger = {}
@@ -625,16 +622,30 @@ export class Program {
   }
 
   async load(sct_path: string) {
-    console.log(`Loading ${sct_path}`)
-
-    const buf = (await fs.readFile(sct_path)).toString()
+    const cachePath = `${sct_path}.cache`
+    let loadCache = false
     let p: Ast.Program = null
     try {
-      p = TSC.CreateParser().parse(buf)
-    } catch ([msg]) {
-      throw msg
+      const st = await fs.stat(cachePath)
+      const sts = await fs.stat(sct_path)
+      if (st.isFile() && st.mtime > sts.mtime) {
+        loadCache = true
+      }
+    } catch (e) {}
+    if (loadCache) {
+      console.log(`Using ${cachePath}`)
+      p = JSON.parse(
+        (await inflate(await fs.readFile(cachePath))).toString()
+      ) as Ast.Program
+    } else {
+      const buf = (await fs.readFile(sct_path)).toString()
+      try {
+        p = TSC.CreateParser().parse(buf)
+      } catch ([msg]) {
+        throw msg
+      }
+      await fs.writeFile(`${sct_path}.cache`, await deflate(JSON.stringify(p)))
     }
-    console.log(`Parse done`)
     TSC.GenerateId(
       p,
       (lib: string) => {
@@ -729,7 +740,15 @@ export class Program {
     await fs.writeFile(`${dir}/Triggers`, saveXml(result))
     await fs.writeFile(
       `${dir}/${locale}/LocalizedData/GameStrings.txt`,
-      this.GS.join('\n')
+      [
+        'DocInfo/DescLong=完全没有任何描述。',
+        'DocInfo/DescShort=任意',
+        'DocInfo/Name=这只是另一张《星际争霸II》地图',
+        'MapInfo/Player00/Name=中立',
+        'MapInfo/Player01/Name=玩家1',
+        'MapInfo/Player02/Name=敌对',
+        ...this.GS,
+      ].join('\n')
     )
     await fs.writeFile(
       `${dir}/${locale}/LocalizedData/TriggerStrings.txt`,
