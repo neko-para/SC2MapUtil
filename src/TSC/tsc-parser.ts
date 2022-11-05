@@ -297,6 +297,12 @@ export function CreateParser() {
       type,
       name,
     }))
+    .when('$label', '$:', '$label', '$=', 'Value')
+    .do((name, _, type, _2, def) => ({
+      type,
+      name,
+      def,
+    }))
 
     .with(r => r._some_sep('PresetValueDefs', 'PresetValueDef', '$,'))
     .for('PresetValueDef')
@@ -368,21 +374,10 @@ export function CreateParser() {
     }))
 
     .for('GlobalVariableDef')
-    .when(
-      'Attribute',
-      '$var',
-      '$label',
-      '$str',
-      '$:',
-      'ArrayType',
-      '$=',
-      'Value',
-      '$;'
-    )
-    .do((flag, _, name, desc, _3, type, _4, value) => ({
+    .when('Attribute', '$var', '$label', '$:', 'ArrayType', '$=', 'Value', '$;')
+    .do((flag, _, name, _3, type, _4, value) => ({
       _type: 'var-def',
       flag,
-      desc,
       name,
       type,
       value,
@@ -485,7 +480,7 @@ function TraceIntoValue(
   val: Ast.Value | Ast.FunctionCall,
   lib: string,
   gen: (lib: string) => string,
-  put: (type: 'ts' | 'gs', text: string) => void
+  put: (type: 'ts' | 'gs', key: string, text: string) => void
 ) {
   val.id = gen(lib)
   val.lib = lib
@@ -495,9 +490,8 @@ function TraceIntoValue(
         case 'text':
           put(
             'gs',
-            `Param/Value/${lib === '0' ? '' : `lib_${lib}_`}${val.id}=${
-              val.value
-            }`
+            `Param/Value/${lib === '0' ? '' : `lib_${lib}_`}${val.id}`,
+            val.value
           )
           break
       }
@@ -527,7 +521,7 @@ function TraceIntoValue(
 export function GenerateId(
   prog: Ast.Program,
   gen: (lib: string) => string,
-  put: (type: 'ts' | 'gs', text: string) => void
+  put: (type: 'ts' | 'gs', key: string, text: string) => void
 ) {
   prog.forEach(p => {
     switch (p._type) {
@@ -558,24 +552,24 @@ export function GenerateId(
           const libprefix = p.library === '0' ? '' : `lib_${p.library}_`
           switch (d._type) {
             case 'preset-def':
-              put('ts', `Preset/Name/${libprefix}${d.id}=${d.desc}`)
+              put('ts', `Preset/Name/${libprefix}${d.id}`, d.desc)
               d.item.forEach(it => {
                 it.id = gen(p.library)
                 it.lib = p.library
-                put('ts', `PresetValue/Name/${libprefix}${it.id}=${it.name}`)
+                put('ts', `PresetValue/Name/${libprefix}${it.id}`, it.name)
               })
               break
             case 'var-def':
-              put('ts', `Variable/Name/${libprefix}${d.id}=${d.desc}`)
+              put('ts', `Variable/Name/${libprefix}${d.id}`, d.name)
               TraceIntoValue(d.value, p.library, gen, put)
               break
             case 'trigger-def':
-              put('ts', `Trigger/Name/${libprefix}${d.id}=${d.desc}`)
+              put('ts', `Trigger/Name/${libprefix}${d.id}`, d.desc)
               TraceIntoValue(d.event, p.library, gen, put)
               d.vars.forEach(v => {
                 v.id = gen(p.library)
                 v.lib = p.library
-                put('ts', `Variable/Name/${libprefix}${v.id}=${v.name}`)
+                put('ts', `Variable/Name/${libprefix}${v.id}`, v.name)
                 TraceIntoValue(v.value, p.library, gen, put)
               })
               d.prog.prog.forEach(pr => {
@@ -583,16 +577,19 @@ export function GenerateId(
               })
               break
             case 'func-def':
-              put('ts', `FunctionDef/Name/${libprefix}${d.id}=${d.desc}`)
+              put('ts', `FunctionDef/Name/${libprefix}${d.id}`, d.desc)
               d.params.forEach(pr => {
                 pr.id = gen(p.library)
                 pr.lib = p.library
-                put('ts', `ParamDef/Name/${libprefix}${pr.id}=${pr.name}`)
+                put('ts', `ParamDef/Name/${libprefix}${pr.id}`, pr.name)
+                if (pr.def) {
+                  TraceIntoValue(pr.def, p.library, gen, put)
+                }
               })
               d.vars.forEach(v => {
                 v.id = gen(p.library)
                 v.lib = p.library
-                put('ts', `Variable/Name/${libprefix}${v.id}=${v.name}`)
+                put('ts', `Variable/Name/${libprefix}${v.id}`, v.name)
                 TraceIntoValue(v.value, p.library, gen, put)
               })
               d.prog.prog.forEach(pr => {

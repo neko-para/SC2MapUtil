@@ -96,7 +96,6 @@ export interface VariableDefine extends VariableInfo {
 
 export interface GlobalVariableDefine extends Node, VariableDefine {
   _type: 'var-def'
-  desc: string
   value: Value
 }
 
@@ -107,6 +106,7 @@ export interface ExternalVariableDefine extends Node, VariableInfo {
 export interface ParamDefine extends Element {
   type: string
   name: string
+  def?: Value
 }
 
 export interface StatementBlock extends Node {

@@ -61,7 +61,7 @@ function TraceIntoFolder(
   item: (DFolder | string)[],
   lib: string,
   gen: (lib: string) => string,
-  put: (type: 'ts' | 'gs', text: string) => void
+  put: (type: 'ts' | 'gs', key: string, text: string) => void
 ) {
   item.forEach(it => {
     if (typeof it === 'string') {
@@ -70,7 +70,8 @@ function TraceIntoFolder(
     it.id = gen(lib)
     put(
       'ts',
-      `Category/Name/${lib === '0' ? '' : `lib_${lib}_`}${it.id}=${it.desc}`
+      `Category/Name/${lib === '0' ? '' : `lib_${lib}_`}${it.id}`,
+      it.desc
     )
     TraceIntoFolder(it.item, lib, gen, put)
   })
@@ -79,12 +80,12 @@ function TraceIntoFolder(
 export function GenerateId(
   progs: DLibrary[],
   gen: (lib: string) => string,
-  put: (type: 'ts' | 'gs', text: string) => void
+  put: (type: 'ts' | 'gs', key: string, text: string) => void
 ) {
   progs.forEach(prog => {
     const lib = prog.name
     if (lib !== '0') {
-      put('ts', `Library/Name/${lib}=${prog.desc}`)
+      put('ts', `Library/Name/${lib}`, prog.desc)
     }
     TraceIntoFolder(prog.item, lib, gen, put)
   })

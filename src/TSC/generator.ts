@@ -5,6 +5,7 @@ import * as TSC from './tsc-parser.js'
 import * as TSD from './tsd-parser.js'
 import { deflate as _deflate, inflate as _inflate } from 'zlib'
 import { promisify } from 'util'
+import { StringManager } from './strings.js'
 const deflate = promisify(_deflate)
 const inflate = promisify(_inflate)
 
@@ -15,7 +16,7 @@ class XmlNodeList {
     this.data = []
   }
 
-  alloc(tag: string) {
+  alloc(tag: string): XmlNode {
     const el = {
       tag,
       attr: {},
@@ -80,13 +81,18 @@ class Context {
         id: this.variable[name],
         lib: this.lib,
       }
-    } else if (name in this.param) {
+    } else if (name in this.program.variable) {
+      return this.program.variable[name]
+    }
+    return undefined
+  }
+
+  queryParam(name: string) {
+    if (name in this.param) {
       return {
         id: this.param[name],
         lib: this.lib,
       }
-    } else if (name in this.program.variable) {
-      return this.program.variable[name]
     } else {
       throw [`Unknown variable ${name}`]
     }
@@ -208,24 +214,50 @@ class Context {
         })
         break
       case 'var-refer':
-        el.child.push({
-          tag: 'Variable',
-          attr: {
-            Type: 'Variable',
-            ...ref(this.queryVariable(val.name)),
-          },
-          child: [],
-        })
+        if (this.queryVariable(val.name)) {
+          el.child.push({
+            tag: 'Variable',
+            attr: {
+              Type: 'Variable',
+              ...ref(this.queryVariable(val.name)),
+            },
+            child: [],
+          })
+        } else if (this.queryParam(val.name)) {
+          el.child.push({
+            tag: 'Parameter',
+            attr: {
+              Type: 'ParamDef',
+              ...ref(this.queryParam(val.name)),
+            },
+            child: [],
+          })
+        } else {
+          throw [`Unknown variable ${val.name}`]
+        }
         break
       case 'var-array-refer':
-        el.child.push({
-          tag: 'Variable',
-          attr: {
-            Type: 'Variable',
-            ...ref(this.queryVariable(val.name)),
-          },
-          child: [],
-        })
+        if (this.queryVariable(val.name)) {
+          el.child.push({
+            tag: 'Variable',
+            attr: {
+              Type: 'Variable',
+              ...ref(this.queryVariable(val.name)),
+            },
+            child: [],
+          })
+        } else if (this.queryParam(val.name)) {
+          el.child.push({
+            tag: 'Parameter',
+            attr: {
+              Type: 'ParamDef',
+              ...ref(this.queryVariable(val.name)),
+            },
+            child: [],
+          })
+        } else {
+          throw [`Unknown variable ${val.name}`]
+        }
         val.dims.forEach(d => {
           el.child.push({
             tag: 'Array',
@@ -299,6 +331,17 @@ class Context {
       attr: {},
       child: [...this.createType(pd.type)],
     })
+    if (pd.def) {
+      el.child.push({
+        tag: 'Default',
+        attr: {
+          Type: 'Param',
+          ...ref(pd.def),
+        },
+        child: [],
+      })
+      this.createParam(pd.def)
+    }
   }
 
   createFunctionCall(fc: Ast.FunctionCall, sft?: Ast.ParamDefine) {
@@ -326,12 +369,8 @@ class Context {
         child: [],
       })
     }
-    const fh = new AttrHelper(fi.flag)
-    if (fh.has('multi')) {
-      fc.param.forEach(p => {
-        if (p._type !== 'block') {
-          throw [`Non block parameter in [multi] function ${fi.name}`]
-        }
+    fc.param.forEach((p, i) => {
+      if (p._type === 'block') {
         p.prog.forEach(s => {
           el.child.push({
             tag: 'FunctionCall',
@@ -341,36 +380,20 @@ class Context {
             },
             child: [],
           })
-          this.createFunctionCall(s, fi.params[0])
+          this.createFunctionCall(s, fi.params[i])
         })
-      })
-    } else {
-      fc.param.forEach((p, i) => {
-        if (p._type === 'block') {
-          p.prog.forEach(s => {
-            el.child.push({
-              tag: 'FunctionCall',
-              attr: {
-                Type: 'FunctionCall',
-                ...ref(s),
-              },
-              child: [],
-            })
-            this.createFunctionCall(s, fi.params[i])
-          })
-        } else {
-          el.child.push({
-            tag: 'Parameter',
-            attr: {
-              Type: 'Param',
-              ...ref(p),
-            },
-            child: [],
-          })
-          this.createParam(p, fi.params[i])
-        }
-      })
-    }
+      } else {
+        el.child.push({
+          tag: 'Parameter',
+          attr: {
+            Type: 'Param',
+            ...ref(p),
+          },
+          child: [],
+        })
+        this.createParam(p, fi.params[i])
+      }
+    })
   }
 
   buildItem(item: Ast.DFolder | string) {
@@ -383,6 +406,19 @@ class Context {
           Type: 'Trigger',
           Id: obj.id,
         }
+        el.child.push({
+          tag: 'Identifier',
+          attr: {},
+          child: [
+            {
+              tag: '#text',
+              attr: {
+                text: item,
+              },
+              child: [],
+            },
+          ],
+        })
         el.child.push({
           tag: 'Event',
           attr: {
@@ -430,6 +466,19 @@ class Context {
           Type: 'FunctionDef',
           Id: obj.id,
         }
+        el.child.push({
+          tag: 'Identifier',
+          attr: {},
+          child: [
+            {
+              tag: '#text',
+              attr: {
+                text: item,
+              },
+              child: [],
+            },
+          ],
+        })
         const fh = new AttrHelper(obj.flag)
         if (fh.has('func')) {
           el.child.push({
@@ -584,18 +633,22 @@ class Context {
 }
 
 export class Program {
-  GS: string[]
-  TS: string[]
   ID: Record<string, number>
 
+  sm: StringManager
   preset: Record<string, Ast.PresetInfo>
   function: Record<string, Ast.FunctionInfo>
   trigger: Record<string, Ast.TriggerDefine>
   variable: Record<string, Ast.VariableInfo>
 
   constructor() {
-    this.GS = []
-    this.TS = []
+    this.sm = new StringManager()
+    this.sm.ts['DocInfo/DescLong'] = '完全没有任何描述。'
+    this.sm.ts['DocInfo/DescShort'] = '任意'
+    this.sm.ts['DocInfo/Name'] = '这只是另一张《星际争霸II》地图'
+    this.sm.ts['MapInfo/Player00/Name'] = '中立'
+    this.sm.ts['MapInfo/Player01/Name'] = '玩家1'
+    this.sm.ts['MapInfo/Player02/Name'] = '敌对'
     this.ID = {}
     this.trigger = {}
     this.preset = {}
@@ -610,13 +663,13 @@ export class Program {
     return (++this.ID[lib]).toString(16).toUpperCase().padStart(8)
   }
 
-  put(type: string, text: string) {
+  put(type: string, key: string, text: string) {
     switch (type) {
-      case 'gs':
-        this.GS.push(text)
-        break
       case 'ts':
-        this.TS.push(text)
+        this.sm.ts[key] = text
+        break
+      case 'gs':
+        this.sm.gs[key] = text
         break
     }
   }
@@ -651,8 +704,8 @@ export class Program {
       (lib: string) => {
         return this.gen(lib)
       },
-      (type, text) => {
-        this.put(type, text)
+      (type, key, text) => {
+        this.put(type, key, text)
       }
     )
     p.forEach(scope => {
@@ -694,7 +747,7 @@ export class Program {
     })
   }
 
-  async generate(scd_path: string) {
+  async generate(scd_path: string, dir: string, locale: string) {
     const buf = (await fs.readFile(scd_path)).toString()
     let libs: Ast.DLibrary[] = []
     try {
@@ -707,8 +760,8 @@ export class Program {
       (lib: string) => {
         return this.gen(lib)
       },
-      (type, text) => {
-        this.put(type, text)
+      (type, key, text) => {
+        this.put(type, key, text)
       }
     )
 
@@ -734,25 +787,7 @@ export class Program {
       }
     })
 
-    const dir = 'C:/Users/nekosu/Desktop/1.SC2Map'
-    const locale = 'zhCN.SC2Data'
-
     await fs.writeFile(`${dir}/Triggers`, saveXml(result))
-    await fs.writeFile(
-      `${dir}/${locale}/LocalizedData/GameStrings.txt`,
-      [
-        'DocInfo/DescLong=完全没有任何描述。',
-        'DocInfo/DescShort=任意',
-        'DocInfo/Name=这只是另一张《星际争霸II》地图',
-        'MapInfo/Player00/Name=中立',
-        'MapInfo/Player01/Name=玩家1',
-        'MapInfo/Player02/Name=敌对',
-        ...this.GS,
-      ].join('\n')
-    )
-    await fs.writeFile(
-      `${dir}/${locale}/LocalizedData/TriggerStrings.txt`,
-      this.TS.join('\n')
-    )
+    await this.sm.save(dir, locale)
   }
 }
